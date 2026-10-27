@@ -1,5 +1,6 @@
 import { CELL, cloneVec2, swapRemove, type Vec2 } from "./types.js";
-import { readMove, setupInput } from "./input.js";
+import { isTextEntryTarget, readMove, setupInput } from "./input.js";
+import { DEV_MODE_HOTKEY, PauseMenu } from "./pauseMenu.js";
 import { ActiveEnemy, DEFAULT_SPAWN_STAGES, EnemySpawnEngine } from "./spawnEngine.js";
 import { createItemSystemState, drawItemEffects, getEffectHitFlash, updateItemEffects, type EffectId } from "./items.js";
 import { SpatialHash } from "./spatialHash.js";
@@ -22,6 +23,7 @@ let pointerPressedAt: Vec2 | null = null;
 let victoryReached = false;
 let pendingLevelUps = 0;
 let upgradeOptions: UpgradeDefinition[] = [];
+let pauseMenu: PauseMenu | null = null;
 
 interface Rect {
   x: number;
@@ -604,16 +606,10 @@ function drawGameStateOverlay(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasE
     return;
   }
 
+  // The pause menu itself is an HTML overlay (pauseMenu.ts); just dim the game behind it.
   if (gameState === "paused") {
     ctx.fillStyle = "rgba(10, 8, 15, 0.7)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = "#efe6d3";
-    ctx.font = "36px monospace";
-    ctx.fillText("Paused", canvas.width / 2 - 70, canvas.height / 2 - 20);
-
-    ctx.font = "16px monospace";
-    ctx.fillText("Press ESC to resume", canvas.width / 2 - 95, canvas.height / 2 + 20);
     return;
   }
 
@@ -660,6 +656,16 @@ function drawGameStateOverlay(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasE
   ctx.fillText("Press SPACE / ENTER / Click to Restart", canvas.width / 2 - 205, canvas.height / 2 + 74);
 }
 
+function pauseGame(): void {
+  setGameState("paused");
+  pauseMenu?.open(player, itemSystemState);
+}
+
+function resumeGame(): void {
+  pauseMenu?.close();
+  setGameState("running");
+}
+
 function runFrame(dt: number): void {
   update(dt);
   if (player.health <= 0) {
@@ -675,12 +681,24 @@ function runFrame(dt: number): void {
 
 export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D): void {
   setupInput();
+  pauseMenu = new PauseMenu(() => {
+    if (gameState === "paused") {
+      resumeGame();
+    }
+  });
   addEventListener("keydown", (e) => {
+    // Typing in a pause-menu field only listens for ESC.
+    if (isTextEntryTarget(e.target) && e.code !== "Escape") {
+      return;
+    }
     if (e.code === "Space" || e.code === "Enter") {
       confirmPressed = true;
     }
     if (e.code === "Escape") {
       pausePressed = true;
+    }
+    if (e.code === DEV_MODE_HOTKEY) {
+      pauseMenu?.toggleDevMode();
     }
     if (e.code === "KeyR") {
       restartPressed = true;
@@ -710,13 +728,13 @@ export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext
       }
     } else if (gameState === "running") {
       if (consumePause()) {
-        setGameState("paused");
+        pauseGame();
       } else {
         runFrame(dt);
       }
     } else if (gameState === "paused") {
       if (consumePause()) {
-        setGameState("running");
+        resumeGame();
       }
     } else if (gameState === "levelup") {
       const choice = consumeUpgradeChoice();

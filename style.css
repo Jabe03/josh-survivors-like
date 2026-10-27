@@ -1,2 +1,23 @@
 html,body{margin:0;height:100%;overflow:hidden;background:#0e0914}
 canvas{display:block;width:100vw;height:100vh}
+
+/* Pause menu (HTML overlay drawn over the canvas, see src/pauseMenu.ts) */
+.pause-menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;font:13px monospace;color:#efe6d3}
+.pause-menu[hidden]{display:none}
+.pause-panel{width:min(520px,100%);max-height:calc(100vh - 32px);display:flex;flex-direction:column;background:rgba(23,16,31,.96);border:1px solid #efe6d3;padding:16px 20px;box-sizing:border-box}
+.pause-title{margin:0 0 12px;font-size:28px;font-weight:normal;text-align:center}
+.pause-tabs{display:flex;gap:6px;margin-bottom:10px}
+.pause-body{overflow-y:auto;min-height:0}
+.pause-tab,.pause-button{font:inherit;color:inherit;background:rgba(0,0,0,.5);border:1px solid #6b5a80;padding:6px 12px;cursor:pointer}
+.pause-tab:hover,.pause-button:hover{border-color:#efe6d3}
+.pause-tab.active{border-color:#9be27d;color:#d7f7c9}
+.pause-table{width:100%;border-collapse:collapse}
+.pause-table td,.pause-table th{padding:4px 6px;border-bottom:1px solid #2c2038;vertical-align:top}
+.pause-table th{text-align:left;font-weight:normal;color:#8f8299}
+.pause-select{width:auto}
+.pause-value{text-align:right;color:#d7f7c9}
+.pause-base{text-align:right;color:#8f8299}
+.pause-input{width:90px;font:inherit;color:#efe6d3;background:#0e0914;border:1px solid #6b5a80;padding:2px 4px}
+.pause-note{margin:0 0 8px;color:#8f8299}
+.pause-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.pause-footer{margin-top:14px;display:flex;justify-content:center}

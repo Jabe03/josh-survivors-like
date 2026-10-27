@@ -2,8 +2,17 @@ import type { Vec2 } from "./types.js";
 
 const keys = new Set<string>();
 
+// True while the player is typing in a menu field, so game keys should be ignored.
+export function isTextEntryTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+}
+
 export function setupInput(): void {
-  addEventListener("keydown", (e) => keys.add(e.code));
+  addEventListener("keydown", (e) => {
+    if (!isTextEntryTarget(e.target)) {
+      keys.add(e.code);
+    }
+  });
   addEventListener("keyup", (e) => keys.delete(e.code));
   addEventListener("blur", () => keys.clear());
 }

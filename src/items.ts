@@ -264,6 +264,12 @@ export function equipItem(state: ItemSystemState, itemId: ItemId): EquippedItem 
   return equipped;
 }
 
+export function unequipItem(state: ItemSystemState, slotIndex: number): void {
+  if (slotIndex >= 0 && slotIndex < state.equipped.length) {
+    state.equipped.splice(slotIndex, 1);
+  }
+}
+
 export function updateItemEffects(context: ItemEffectContext, state: ItemSystemState): void {
   for (const equipped of state.equipped) {
     const effects = equipped.item.effects;

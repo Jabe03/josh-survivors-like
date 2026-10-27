@@ -41,7 +41,7 @@ export const MIN_DAMAGE_PER_HIT = 1;
 // Dodge chance is clamped to this, however many upgrades stack.
 export const MAX_DODGE_CHANCE = 0.6;
 
-const BASE_PLAYER_STATS: PlayerStats = {
+export const BASE_PLAYER_STATS: Readonly<PlayerStats> = {
   moveSpeed: 240,
   attackDamageMultiplier: 1,
   attackRateMultiplier: 1,
