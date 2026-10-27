@@ -1,21 +1,43 @@
-import { CELL, type Vec2 } from "./types.js";
+import { CELL, cloneVec2, swapRemove, type Vec2 } from "./types.js";
 import { readMove, setupInput } from "./input.js";
 import { ActiveEnemy, DEFAULT_SPAWN_STAGES, EnemySpawnEngine } from "./spawnEngine.js";
-import { createItemSystemState, DEFAULT_EQUIPPED_ITEM_IDS, drawItemEffects, ITEM_DEFINITIONS, updateItemEffects, type EffectId } from "./items.js";
+import { createItemSystemState, drawItemEffects, getEffectHitFlash, updateItemEffects, type EffectId } from "./items.js";
+import { SpatialHash } from "./spatialHash.js";
 import { createDefaultPlayer } from "./player.js";
 import { DEFAULT_LEVEL_CURVE, grantExperience, xpToNextLevel } from "./leveling.js";
-import { applyUpgrade, chooseRandomUpgrade } from "./upgrades.js";
+import { applyUpgrade, chooseUpgradeOptions, type UpgradeDefinition } from "./upgrades.js";
 
-type GameState = "start" | "running" | "dead";
+type GameState = "start" | "running" | "paused" | "levelup" | "victory" | "dead";
+
+// Surviving this long wins the run; the player can then keep going in endless mode.
+const VICTORY_TIME = 300;
 
 let gameState: GameState = "start";
 let confirmPressed = false;
+let restartPressed = false;
+let pausePressed = false;
+let choiceKeyPressed: number | null = null;
+let pointerPressedAt: Vec2 | null = null;
+
+let victoryReached = false;
+let pendingLevelUps = 0;
+let upgradeOptions: UpgradeDefinition[] = [];
+
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+// Where the upgrade cards were last drawn, for click hit-testing.
+let upgradeCardRects: Rect[] = [];
 
 let player = createDefaultPlayer(xpToNextLevel(1, DEFAULT_LEVEL_CURVE));
 
 const enemies: ActiveEnemy[] = [];
 let spawnEngine = new EnemySpawnEngine(DEFAULT_SPAWN_STAGES);
-const equippedItemIds = [...DEFAULT_EQUIPPED_ITEM_IDS];
+const enemyGrid = new SpatialHash();
 let itemSystemState = createItemSystemState();
 
 interface XpOrb {
@@ -25,8 +47,11 @@ interface XpOrb {
 }
 
 const xpOrbs: XpOrb[] = [];
-let lastUpgradeText = "";
-let lastUpgradeTimer = 0;
+
+const UPGRADE_TOAST_DURATION = 2.4;
+// Toasts show one at a time; extra level-ups wait in the queue.
+const upgradeToastQueue: string[] = [];
+let upgradeToastTimer = 0;
 
 interface HitFlash {
   pos: Vec2;
@@ -43,8 +68,11 @@ function resetRun(): void {
   enemies.length = 0;
   xpOrbs.length = 0;
   hitFlashes.length = 0;
-  lastUpgradeText = "";
-  lastUpgradeTimer = 0;
+  upgradeToastQueue.length = 0;
+  upgradeToastTimer = 0;
+  victoryReached = false;
+  pendingLevelUps = 0;
+  upgradeOptions = [];
   spawnEngine = new EnemySpawnEngine(DEFAULT_SPAWN_STAGES);
   itemSystemState = createItemSystemState();
 }
@@ -57,8 +85,43 @@ function consumeConfirm(): boolean {
   return true;
 }
 
-function cloneVec2(v: Vec2): Vec2 {
-  return { x: v.x, y: v.y };
+function consumePause(): boolean {
+  if (!pausePressed) {
+    return false;
+  }
+  pausePressed = false;
+  return true;
+}
+
+function consumeRestart(): boolean {
+  if (!restartPressed) {
+    return false;
+  }
+  restartPressed = false;
+  return true;
+}
+
+// Drop presses made during play so they do not trigger the next screen.
+function setGameState(next: GameState): void {
+  gameState = next;
+  confirmPressed = false;
+  restartPressed = false;
+  pausePressed = false;
+  choiceKeyPressed = null;
+  pointerPressedAt = null;
+}
+
+function consumeUpgradeChoice(): number | null {
+  let choice = choiceKeyPressed;
+  if (choice === null && pointerPressedAt !== null) {
+    const p = pointerPressedAt;
+    const hit = upgradeCardRects.findIndex((r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h);
+    choice = hit >= 0 ? hit : null;
+  }
+  choiceKeyPressed = null;
+  pointerPressedAt = null;
+  confirmPressed = false;
+  return choice !== null && choice < upgradeOptions.length ? choice : null;
 }
 
 function screenPosFromWorld(world: Vec2, canvas: HTMLCanvasElement): Vec2 {
@@ -73,30 +136,38 @@ function updateVisualEffects(dt: number): void {
     const fx = hitFlashes[i];
     fx.life -= dt;
     if (fx.life <= 0) {
-      hitFlashes.splice(i, 1);
+      swapRemove(hitFlashes, i);
     }
   }
 
-  lastUpgradeTimer = Math.max(0, lastUpgradeTimer - dt);
+  if (upgradeToastQueue.length > 0) {
+    upgradeToastTimer -= dt;
+    if (upgradeToastTimer <= 0) {
+      upgradeToastQueue.shift();
+      upgradeToastTimer = upgradeToastQueue.length > 0 ? UPGRADE_TOAST_DURATION : 0;
+    }
+  }
 }
 
 function damageEnemy(enemy: ActiveEnemy, amount: number, source: EffectId): void {
   enemy.health = Math.max(0, enemy.health - amount);
 
+  const flash = getEffectHitFlash(source);
   hitFlashes.push({
     pos: cloneVec2(enemy.pos),
-    radius: source === "default_shoot" ? 8 : 10,
-    life: source === "default_shoot" ? 0.12 : 0.16,
-    maxLife: source === "default_shoot" ? 0.12 : 0.16,
-    color: source === "default_shoot" ? "#ffe6a8" : "#ff9966",
+    radius: flash.radius,
+    life: flash.life,
+    maxLife: flash.life,
+    color: flash.color,
   });
 }
 
-function grantRandomUpgrade(): void {
-  const upgrade = chooseRandomUpgrade();
+function grantUpgrade(upgrade: UpgradeDefinition): void {
   applyUpgrade(player, upgrade);
-  lastUpgradeText = `${upgrade.name}: ${upgrade.description}`;
-  lastUpgradeTimer = 2.4;
+  if (upgradeToastQueue.length === 0) {
+    upgradeToastTimer = UPGRADE_TOAST_DURATION;
+  }
+  upgradeToastQueue.push(`${upgrade.name}: ${upgrade.description}`);
 }
 
 function spawnXpOrb(pos: Vec2, value: number): void {
@@ -126,10 +197,8 @@ function updateXpOrbs(dt: number): void {
     if (dist < pickupRange + orb.radius) {
       const gainedXp = orb.value;
       const levelsGained = grantExperience(player.progression, gainedXp, DEFAULT_LEVEL_CURVE);
-      for (let level = 0; level < levelsGained; level += 1) {
-        grantRandomUpgrade();
-      }
-      xpOrbs.splice(i, 1);
+      pendingLevelUps += levelsGained;
+      swapRemove(xpOrbs, i);
     }
   }
 }
@@ -138,7 +207,7 @@ function removeDeadEnemies(): void {
   for (let i = enemies.length - 1; i >= 0; i -= 1) {
     if (enemies[i].health <= 0) {
       spawnXpOrb(enemies[i].pos, enemies[i].xpReward);
-      enemies.splice(i, 1);
+      swapRemove(enemies, i);
     }
   }
 }
@@ -172,28 +241,52 @@ function resolvePlayerEnemyOverlap(enemy: ActiveEnemy, moveX: number, moveY: num
   return true;
 }
 
+function separateEnemyPair(a: ActiveEnemy, b: ActiveEnemy): void {
+  const dx = b.pos.x - a.pos.x;
+  const dy = b.pos.y - a.pos.y;
+  const minDist = a.radius + b.radius;
+  const dist = Math.hypot(dx, dy);
+  if (dist >= minDist) {
+    return;
+  }
+
+  const nx = dist > 0 ? dx / dist : 1;
+  const ny = dist > 0 ? dy / dist : 0;
+  const penetration = minDist - dist;
+  const push = penetration / 2;
+
+  a.pos.x -= nx * push;
+  a.pos.y -= ny * push;
+  b.pos.x += nx * push;
+  b.pos.y += ny * push;
+}
+
 function resolveEnemyEnemyOverlaps(): void {
+  // Cells are as wide as the largest possible overlap distance, so any overlapping
+  // pair sits in the same or an adjacent cell.
+  let maxRadius = 0;
+  for (const enemy of enemies) {
+    maxRadius = Math.max(maxRadius, enemy.radius);
+  }
+  enemyGrid.build(enemies, maxRadius * 2);
+
   for (let i = 0; i < enemies.length; i += 1) {
     const a = enemies[i];
-    for (let j = i + 1; j < enemies.length; j += 1) {
-      const b = enemies[j];
-      const dx = b.pos.x - a.pos.x;
-      const dy = b.pos.y - a.pos.y;
-      const minDist = a.radius + b.radius;
-      const dist = Math.hypot(dx, dy);
-      if (dist >= minDist) {
-        continue;
+    const cx = enemyGrid.cellCoord(a.pos.x);
+    const cy = enemyGrid.cellCoord(a.pos.y);
+    for (let oy = -1; oy <= 1; oy += 1) {
+      for (let ox = -1; ox <= 1; ox += 1) {
+        const bucket = enemyGrid.bucket(cx + ox, cy + oy);
+        if (!bucket) {
+          continue;
+        }
+        for (const j of bucket) {
+          // Each pair once, matching the old i < j loop.
+          if (j > i) {
+            separateEnemyPair(a, enemies[j]);
+          }
+        }
       }
-
-      let nx = dist > 0 ? dx / dist : 1;
-      let ny = dist > 0 ? dy / dist : 0;
-      const penetration = minDist - dist;
-      const push = penetration / 2;
-
-      a.pos.x -= nx * push;
-      a.pos.y -= ny * push;
-      b.pos.x += nx * push;
-      b.pos.y += ny * push;
     }
   }
 }
@@ -241,7 +334,6 @@ function update(dt: number): void {
         enemies,
         damageEnemy,
       },
-      equippedItemIds,
       itemSystemState,
     );
 
@@ -251,6 +343,11 @@ function update(dt: number): void {
     removeDeadEnemies();
     updateXpOrbs(stepDt);
     updateVisualEffects(stepDt);
+
+    // Pause the rest of the frame so the player can pick an upgrade.
+    if (pendingLevelUps > 0) {
+      break;
+    }
   }
 }
 
@@ -298,14 +395,13 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
       player,
       worldToScreen: (world) => screenPosFromWorld(world, canvas),
     },
-    equippedItemIds,
     itemSystemState,
   );
 
   for (const enemy of enemies) {
     const enemyScreenX = enemy.pos.x - player.pos.x + canvas.width / 2;
     const enemyScreenY = enemy.pos.y - player.pos.y + canvas.height / 2;
-    ctx.fillStyle = enemy.kind === "boss" ? "#9a2a2a" : enemy.kind === "miniboss" ? "#c6552f" : "#d66565";
+    ctx.fillStyle = enemy.color;
     ctx.beginPath();
     ctx.arc(enemyScreenX, enemyScreenY, enemy.radius, 0, Math.PI * 2);
     ctx.fill();
@@ -317,7 +413,7 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
     const hpY = enemyScreenY - enemy.radius - 10;
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
     ctx.fillRect(hpX, hpY, hpW, hpH);
-    ctx.fillStyle = enemy.kind === "boss" ? "#ff9d9d" : enemy.kind === "miniboss" ? "#ffb07f" : "#ff7a7a";
+    ctx.fillStyle = enemy.healthBarColor;
     ctx.fillRect(hpX, hpY, hpW * Math.max(0, hpRatio), hpH);
   }
 
@@ -386,15 +482,20 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
     xpBarY + 10,
   );
 
-  if (lastUpgradeTimer > 0) {
-    const alpha = Math.min(1, lastUpgradeTimer / 0.4);
+  if (upgradeToastQueue.length > 0) {
+    const pending = upgradeToastQueue.length - 1;
+    const toastText = `Upgrade: ${upgradeToastQueue[0]}${pending > 0 ? `  (+${pending} more)` : ""}`;
+    const toastW = Math.max(340, ctx.measureText(toastText).width + 20);
+    const toastX = canvas.width / 2 - toastW / 2;
+    // Only fade out the last toast; queued ones swap in without flickering.
+    const alpha = pending > 0 ? 1 : Math.min(1, upgradeToastTimer / 0.4);
     ctx.globalAlpha = alpha;
     ctx.fillStyle = "rgba(30, 46, 22, 0.85)";
-    ctx.fillRect(canvas.width / 2 - 170, xpBarY + 22, 340, 24);
+    ctx.fillRect(toastX, xpBarY + 22, toastW, 24);
     ctx.strokeStyle = "#9be27d";
-    ctx.strokeRect(canvas.width / 2 - 170, xpBarY + 22, 340, 24);
+    ctx.strokeRect(toastX, xpBarY + 22, toastW, 24);
     ctx.fillStyle = "#d7f7c9";
-    ctx.fillText(`Upgrade: ${lastUpgradeText}`, canvas.width / 2 - 160, xpBarY + 38);
+    ctx.fillText(toastText, toastX + 10, xpBarY + 38);
     ctx.globalAlpha = 1;
   }
 
@@ -413,7 +514,8 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
   ctx.fillStyle = "#efe6d3";
   ctx.font = "12px monospace";
   ctx.fillText(`Stage: ${stageInfo.index + 1}`, stageLabelX + 10, stageLabelY + 18);
-  ctx.fillText(stageInfo.label, stageLabelX + 10, stageLabelY + 34);
+  const endlessTier = spawnEngine.getEndlessTier();
+  ctx.fillText(`${stageInfo.label}${endlessTier > 0 ? ` +${endlessTier}` : ""}`, stageLabelX + 10, stageLabelY + 34);
   ctx.fillText(`Enemies: ${enemies.length}/${stageInfo.targetEnemyCount}`, stageLabelX + 10, stageLabelY + 50);
   ctx.fillText(`Time: ${elapsedSeconds}s`, stageLabelX + 10, stageLabelY + 66);
 
@@ -421,7 +523,8 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
   const itemLineH = 18;
   const itemPanelX = canvas.width - itemPanelW - 16;
   const itemPanelY = 16;
-  const itemPanelH = 34 + Math.max(1, equippedItemIds.length) * itemLineH;
+  const equippedItems = itemSystemState.equipped;
+  const itemPanelH = 34 + Math.max(1, equippedItems.length) * itemLineH;
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.fillRect(itemPanelX, itemPanelY, itemPanelW, itemPanelH);
@@ -432,17 +535,91 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
   ctx.font = "12px monospace";
   ctx.fillText("Items", itemPanelX + 10, itemPanelY + 18);
 
-  for (let i = 0; i < equippedItemIds.length; i += 1) {
-    const itemId = equippedItemIds[i];
-    const itemName = ITEM_DEFINITIONS[itemId]?.name ?? itemId;
-    ctx.fillText(`- ${itemName}`, itemPanelX + 10, itemPanelY + 36 + i * itemLineH);
+  for (let i = 0; i < equippedItems.length; i += 1) {
+    ctx.fillText(`- ${equippedItems[i].item.name}`, itemPanelX + 10, itemPanelY + 36 + i * itemLineH);
   }
 
   drawGameStateOverlay(ctx, canvas);
 }
 
+function drawUpgradeChoice(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
+  ctx.fillStyle = "rgba(10, 8, 15, 0.7)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const cardW = 220;
+  const cardH = 110;
+  const gap = 20;
+  const totalW = upgradeOptions.length * cardW + (upgradeOptions.length - 1) * gap;
+  const startX = canvas.width / 2 - totalW / 2;
+  const cardY = canvas.height / 2 - cardH / 2;
+
+  ctx.fillStyle = "#efe6d3";
+  ctx.font = "24px monospace";
+  const title = pendingLevelUps > 1 ? `Level Up! (${pendingLevelUps} to pick)` : "Level Up!";
+  ctx.fillText(title, canvas.width / 2 - ctx.measureText(title).width / 2, cardY - 30);
+
+  upgradeCardRects = upgradeOptions.map((_, i) => ({ x: startX + i * (cardW + gap), y: cardY, w: cardW, h: cardH }));
+  for (let i = 0; i < upgradeOptions.length; i += 1) {
+    const upgrade = upgradeOptions[i];
+    const r = upgradeCardRects[i];
+    ctx.fillStyle = "rgba(30, 46, 22, 0.92)";
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = "#9be27d";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    ctx.lineWidth = 1;
+
+    ctx.fillStyle = "#9be27d";
+    ctx.font = "12px monospace";
+    ctx.fillText(`[${i + 1}]`, r.x + 12, r.y + 22);
+    ctx.fillStyle = "#d7f7c9";
+    ctx.font = "16px monospace";
+    ctx.fillText(upgrade.name, r.x + 12, r.y + 50);
+    ctx.font = "12px monospace";
+    ctx.fillText(upgrade.description, r.x + 12, r.y + 76);
+  }
+
+  ctx.fillStyle = "#efe6d3";
+  ctx.font = "12px monospace";
+  const hint = "Press 1-3 or click a card";
+  ctx.fillText(hint, canvas.width / 2 - ctx.measureText(hint).width / 2, cardY + cardH + 32);
+}
+
 function drawGameStateOverlay(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
   if (gameState === "running") {
+    return;
+  }
+
+  if (gameState === "levelup") {
+    drawUpgradeChoice(ctx, canvas);
+    return;
+  }
+
+  if (gameState === "paused") {
+    ctx.fillStyle = "rgba(10, 8, 15, 0.7)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "#efe6d3";
+    ctx.font = "36px monospace";
+    ctx.fillText("Paused", canvas.width / 2 - 70, canvas.height / 2 - 20);
+
+    ctx.font = "16px monospace";
+    ctx.fillText("Press ESC to resume", canvas.width / 2 - 95, canvas.height / 2 + 20);
+    return;
+  }
+
+  if (gameState === "victory") {
+    ctx.fillStyle = "rgba(8, 18, 10, 0.8)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "#d7f7c9";
+    ctx.font = "36px monospace";
+    ctx.fillText("You Survived!", canvas.width / 2 - 140, canvas.height / 2 - 36);
+
+    ctx.font = "16px monospace";
+    ctx.fillText(`Level: ${player.progression.level}`, canvas.width / 2 - 60, canvas.height / 2 + 2);
+    ctx.fillText("SPACE / ENTER / Click to keep going (endless)", canvas.width / 2 - 225, canvas.height / 2 + 46);
+    ctx.fillText("R to start a new run", canvas.width / 2 - 100, canvas.height / 2 + 74);
     return;
   }
 
@@ -474,15 +651,39 @@ function drawGameStateOverlay(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasE
   ctx.fillText("Press SPACE / ENTER / Click to Restart", canvas.width / 2 - 205, canvas.height / 2 + 74);
 }
 
+function runFrame(dt: number): void {
+  update(dt);
+  if (player.health <= 0) {
+    setGameState("dead");
+  } else if (pendingLevelUps > 0) {
+    upgradeOptions = chooseUpgradeOptions();
+    setGameState("levelup");
+  } else if (!victoryReached && spawnEngine.getElapsedTime() >= VICTORY_TIME) {
+    victoryReached = true;
+    setGameState("victory");
+  }
+}
+
 export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D): void {
   setupInput();
   addEventListener("keydown", (e) => {
     if (e.code === "Space" || e.code === "Enter") {
       confirmPressed = true;
     }
+    if (e.code === "Escape") {
+      pausePressed = true;
+    }
+    if (e.code === "KeyR") {
+      restartPressed = true;
+    }
+    const choiceMatch = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+    if (choiceMatch) {
+      choiceKeyPressed = Number(choiceMatch[1]) - 1;
+    }
   });
-  addEventListener("pointerdown", () => {
+  addEventListener("pointerdown", (e) => {
     confirmPressed = true;
+    pointerPressedAt = { x: e.clientX, y: e.clientY };
   });
 
   addEventListener("resize", () => resize(canvas));
@@ -496,17 +697,40 @@ export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext
     if (gameState === "start") {
       if (consumeConfirm()) {
         resetRun();
-        gameState = "running";
+        setGameState("running");
       }
     } else if (gameState === "running") {
-      update(dt);
-      if (player.health <= 0) {
-        gameState = "dead";
+      if (consumePause()) {
+        setGameState("paused");
+      } else {
+        runFrame(dt);
+      }
+    } else if (gameState === "paused") {
+      if (consumePause()) {
+        setGameState("running");
+      }
+    } else if (gameState === "levelup") {
+      const choice = consumeUpgradeChoice();
+      if (choice !== null) {
+        grantUpgrade(upgradeOptions[choice]);
+        pendingLevelUps -= 1;
+        if (pendingLevelUps > 0) {
+          upgradeOptions = chooseUpgradeOptions();
+        } else {
+          setGameState("running");
+        }
+      }
+    } else if (gameState === "victory") {
+      if (consumeRestart()) {
+        resetRun();
+        setGameState("running");
+      } else if (consumeConfirm()) {
+        setGameState("running");
       }
     } else if (gameState === "dead") {
       if (consumeConfirm()) {
         resetRun();
-        gameState = "running";
+        setGameState("running");
       }
     }
 
