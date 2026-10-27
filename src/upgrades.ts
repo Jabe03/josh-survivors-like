@@ -1,4 +1,4 @@
-import type { Player, PlayerStats } from "./player.js";
+import { healPlayer, type Player, type PlayerStats } from "./player.js";
 
 // Any numeric player stat can be upgraded; adding a stat to PlayerStats is enough.
 export type UpgradeStatKey = keyof PlayerStats;
@@ -40,6 +40,54 @@ export const UPGRADE_DEFINITIONS: UpgradeDefinition[] = [
     description: "+12% attack size",
     modifiers: [{ stat: "attackSizeMultiplier", amount: 0.12 }],
   },
+  {
+    id: "max_health_up",
+    name: "Max Health Up",
+    description: "+20 max health",
+    modifiers: [{ stat: "maxHealth", amount: 20 }],
+  },
+  {
+    id: "health_regen_up",
+    name: "Health Regen Up",
+    description: "+0.5 health regen per second",
+    modifiers: [{ stat: "healthRegenRate", amount: 0.5 }],
+  },
+  {
+    id: "crit_chance_up",
+    name: "Crit Chance Up",
+    description: "+3% crit chance",
+    modifiers: [{ stat: "critChance", amount: 0.03 }],
+  },
+  {
+    id: "crit_damage_up",
+    name: "Crit Damage Up",
+    description: "+15% crit damage multiplier",
+    modifiers: [{ stat: "critDamageMultiplier", amount: 0.15 }],
+  },
+  {
+    id: "pickup_range_up",
+    name: "Pickup Range Up",
+    description: "+10 pickup range",
+    modifiers: [{ stat: "pickupRange", amount: 10 }],
+  },
+  {
+    id: "xp_multiplier_up",
+    name: "XP Multiplier Up",
+    description: "+10% XP gain",
+    modifiers: [{ stat: "xpMultiplier", amount: 0.1 }],
+  },
+  {
+    id: "dodge_chance_up",
+    name: "Dodge Chance Up",
+    description: "+3% dodge chance",
+    modifiers: [{ stat: "dodgeChance", amount: 0.03 }],
+  },
+  {
+    id: "armor_up",
+    name: "Armor Up",
+    description: "+2 armor (reduces damage taken)",
+    modifiers: [{ stat: "armor", amount: 2 }],
+  },
 ];
 
 export const UPGRADE_CHOICE_COUNT = 3;
@@ -57,5 +105,10 @@ export function chooseUpgradeOptions(count: number = UPGRADE_CHOICE_COUNT): Upgr
 export function applyUpgrade(player: Player, upgrade: UpgradeDefinition): void {
   for (const modifier of upgrade.modifiers) {
     player.stats[modifier.stat] += modifier.amount;
+    // Raising max health also heals by the same amount, so the new HP is usable right away.
+    if (modifier.stat === "maxHealth") {
+      healPlayer(player, Math.max(0, modifier.amount));
+    }
   }
+  player.health = Math.min(player.health, player.stats.maxHealth);
 }

@@ -3,7 +3,7 @@ import { readMove, setupInput } from "./input.js";
 import { ActiveEnemy, DEFAULT_SPAWN_STAGES, EnemySpawnEngine } from "./spawnEngine.js";
 import { createItemSystemState, drawItemEffects, getEffectHitFlash, updateItemEffects, type EffectId } from "./items.js";
 import { SpatialHash } from "./spatialHash.js";
-import { createDefaultPlayer } from "./player.js";
+import { BASE_PICKUP_RANGE, createDefaultPlayer, damagePlayer, healPlayer } from "./player.js";
 import { DEFAULT_LEVEL_CURVE, grantExperience, xpToNextLevel } from "./leveling.js";
 import { applyUpgrade, chooseUpgradeOptions, type UpgradeDefinition } from "./upgrades.js";
 
@@ -149,16 +149,22 @@ function updateVisualEffects(dt: number): void {
   }
 }
 
+const CRIT_FLASH_COLOR = "#ffffff";
+const CRIT_FLASH_SCALE = 1.6;
+
+// Every hit from every item rolls for a crit.
 function damageEnemy(enemy: ActiveEnemy, amount: number, source: EffectId): void {
-  enemy.health = Math.max(0, enemy.health - amount);
+  const isCrit = Math.random() < player.stats.critChance;
+  const dealt = isCrit ? amount * player.stats.critDamageMultiplier : amount;
+  enemy.health = Math.max(0, enemy.health - dealt);
 
   const flash = getEffectHitFlash(source);
   hitFlashes.push({
     pos: cloneVec2(enemy.pos),
-    radius: flash.radius,
+    radius: isCrit ? flash.radius * CRIT_FLASH_SCALE : flash.radius,
     life: flash.life,
     maxLife: flash.life,
-    color: flash.color,
+    color: isCrit ? CRIT_FLASH_COLOR : flash.color,
   });
 }
 
@@ -179,8 +185,9 @@ function spawnXpOrb(pos: Vec2, value: number): void {
 }
 
 function updateXpOrbs(dt: number): void {
-  const magnetRange = 180;
-  const pickupRange = player.radius + 10;
+  const pickupScale = player.stats.pickupRange / BASE_PICKUP_RANGE;
+  const magnetRange = 180 * pickupScale;
+  const pickupRange = (player.radius + 10) * pickupScale;
 
   for (let i = xpOrbs.length - 1; i >= 0; i -= 1) {
     const orb = xpOrbs[i];
@@ -195,7 +202,7 @@ function updateXpOrbs(dt: number): void {
     }
 
     if (dist < pickupRange + orb.radius) {
-      const gainedXp = orb.value;
+      const gainedXp = orb.value * player.stats.xpMultiplier;
       const levelsGained = grantExperience(player.progression, gainedXp, DEFAULT_LEVEL_CURVE);
       pendingLevelUps += levelsGained;
       swapRemove(xpOrbs, i);
@@ -307,6 +314,7 @@ function update(dt: number): void {
     const stepMoveY = m.y * player.stats.moveSpeed * stepDt;
     player.pos.x += stepMoveX;
     player.pos.y += stepMoveY;
+    healPlayer(player, player.stats.healthRegenRate * stepDt);
 
     spawnEngine.update(stepDt, player.pos, enemies);
 
@@ -322,7 +330,8 @@ function update(dt: number): void {
 
       const overlap = resolvePlayerEnemyOverlap(enemy, stepMoveX, stepMoveY);
       if (overlap && enemy.hitCooldown === 0) {
-        player.health = Math.max(0, player.health - enemy.damage);
+        // The cooldown resets even on a dodge, so the enemy can't re-roll every substep.
+        damagePlayer(player, enemy.damage);
         enemy.hitCooldown = enemy.hitInterval;
       }
     }
@@ -444,7 +453,7 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
   const barH = 18;
   const barX = playerScreenX - barW / 2;
   const barY = playerScreenY + barH*2;
-  const hpRatio = player.health / player.maxHealth;
+  const hpRatio = player.health / player.stats.maxHealth;
 
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
@@ -457,7 +466,7 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
 
   ctx.fillStyle = "#efe6d3";
   ctx.font = "12px monospace";
-  ctx.fillText(`HP ${Math.ceil(player.health)} / ${player.maxHealth}`, barX + 8, barY + 13);
+  ctx.fillText(`HP ${Math.ceil(player.health)} / ${player.stats.maxHealth}`, barX + 8, barY + 13);
 
   const xpBarW = 280;
   const xpBarH = 12;
