@@ -22,7 +22,7 @@ export function drawStartScreen(ctx: CanvasRenderingContext2D, canvas: HTMLCanva
   ctx.fillText("Josh's Game", canvas.width / 2 - 150, canvas.height / 2 - 40);
 
   ctx.font = "16px monospace";
-  ctx.fillText("Move: WASD", canvas.width / 2 - 70, canvas.height / 2);
+  ctx.fillText("Move: WASD   Active item: SPACE", canvas.width / 2 - 155, canvas.height / 2);
   ctx.fillText("Collect XP, level up, survive.", canvas.width / 2 - 145, canvas.height / 2 + 28);
   ctx.fillText("Press SPACE / ENTER / Click to Start", canvas.width / 2 - 200, canvas.height / 2 + 72);
 }

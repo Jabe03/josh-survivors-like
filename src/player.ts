@@ -1,4 +1,6 @@
 import type { Vec2 } from "./types.js";
+import { createEquippedItem, DEFAULT_EQUIPPED_ITEM_IDS, EquippedActiveItem, EquippedItem, type ItemId } from "./items.js";
+import type { ItemUpdateContext } from "./itemTypes.js";
 
 export interface PlayerStats {
   moveSpeed: number;
@@ -22,13 +24,6 @@ export interface PlayerProgression {
   xpToNext: number;
 }
 
-export interface Player {
-  pos: Vec2;
-  radius: number;
-  health: number;
-  stats: PlayerStats;
-  progression: PlayerProgression;
-}
 
 
 export const BASE_PLAYER_RADIUS = 12;
@@ -56,18 +51,53 @@ export const BASE_PLAYER_STATS: Readonly<PlayerStats> = {
   armor: 0
 };
 
-export function createDefaultPlayer(initialXpToNext: number): Player {
-  return {
-    pos: { x: 0, y: 0 },
-    radius: BASE_PLAYER_RADIUS,
-    health: BASE_PLAYER_MAX_HEALTH,
-    stats: { ...BASE_PLAYER_STATS },
-    progression: {
-      level: 1,
-      xp: 0,
-      xpToNext: initialXpToNext,
-    },
-  };
+export class Player {
+  pos: Vec2 = { x: 0, y: 0 };
+  radius = BASE_PLAYER_RADIUS;
+  health = BASE_PLAYER_MAX_HEALTH;
+  stats: PlayerStats = { ...BASE_PLAYER_STATS };
+  progression: PlayerProgression;
+  readonly passiveItems: EquippedItem[] = [];
+  // At most one active item; null when none is equipped.
+  activeItem: EquippedActiveItem | null = null;
+
+  constructor(initialXpToNext: number, itemIds: readonly ItemId[] = DEFAULT_EQUIPPED_ITEM_IDS) {
+    this.progression = { level: 1, xp: 0, xpToNext: initialXpToNext };
+    for (const itemId of itemIds) {
+      this.equipItem(itemId);
+    }
+  }
+
+  // Passive and active items, in update and draw order.
+  get allItems(): EquippedItem[] {
+    return this.activeItem ? [...this.passiveItems, this.activeItem] : this.passiveItems;
+  }
+
+  // Passive items are added; an active item replaces the current one.
+  equipItem(itemId: ItemId): EquippedItem {
+    const equipped = createEquippedItem(itemId);
+    if (equipped instanceof EquippedActiveItem) {
+      this.activeItem = equipped;
+    } else {
+      this.passiveItems.push(equipped);
+    }
+    return equipped;
+  }
+
+  unequipPassive(slotIndex: number): void {
+    if (slotIndex >= 0 && slotIndex < this.passiveItems.length) {
+      this.passiveItems.splice(slotIndex, 1);
+    }
+  }
+
+  unequipActive(): void {
+    this.activeItem = null;
+  }
+
+  // Asks the active item to do its effect. Returns whether it fired.
+  useActiveItem(context: ItemUpdateContext): boolean {
+    return this.activeItem?.useActive(context) ?? false;
+  }
 }
 
 export function healPlayer(player: Player, amount: number): void {

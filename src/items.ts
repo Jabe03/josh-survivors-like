@@ -1,10 +1,12 @@
 import type { PlayerStats } from "./player.js";
-import type { AnyItemDefinition, ItemDrawContext, ItemParams, ItemUpdateContext, ParamScaling } from "./itemTypes.js";
+import type { AnyActiveItemDefinition, AnyItemDefinition, ItemDrawContext, ItemParams, ItemUpdateContext, ParamScaling } from "./itemTypes.js";
 import { starterBlaster } from "./items/starterBlaster.js";
 import { aura } from "./items/aura.js";
+import { blowback } from "./items/blowback.js";
 
-// Every item in the game. To add one, create its file in src/items/ and list it here.
-const ITEM_LIST = [starterBlaster, aura] as const;
+// Every item in the game, passive and active. To add one, create its file in src/items/
+// and list it here.
+const ITEM_LIST = [starterBlaster, aura, blowback] as const;
 
 export type ItemId = (typeof ITEM_LIST)[number]["id"];
 
@@ -12,7 +14,7 @@ const ERASED_ITEM_LIST: readonly AnyItemDefinition[] = ITEM_LIST;
 
 export const ITEM_DEFINITIONS = Object.fromEntries(ERASED_ITEM_LIST.map((item) => [item.id, item])) as Record<ItemId, AnyItemDefinition>;
 
-export const DEFAULT_EQUIPPED_ITEM_IDS: ItemId[] = ["starter_blaster", "aura"];
+export const DEFAULT_EQUIPPED_ITEM_IDS: ItemId[] = ["starter_blaster", "aura", "blowback"];
 
 export function getMaxLevel(item: AnyItemDefinition): number {
   return Math.max(1, item.maxLevel);
@@ -33,62 +35,56 @@ export function getItemParams(item: AnyItemDefinition, level: number, stats?: Pl
   return result;
 }
 
-// One per equipped slot, so equipping the same item twice gives it an independent state.
-export interface EquippedItem {
-  item: AnyItemDefinition;
-  level: number;
-  state: unknown;
-}
+// One equipped copy of an item, holding its level and runtime state. Equipping the same
+// item twice gives each copy its own state.
+export class EquippedItem<D extends AnyItemDefinition = AnyItemDefinition> {
+  level = 1;
+  readonly state: unknown;
 
-export interface ItemSystemState {
-  equipped: EquippedItem[];
-}
-
-export function createItemSystemState(itemIds: readonly ItemId[] = DEFAULT_EQUIPPED_ITEM_IDS): ItemSystemState {
-  const state: ItemSystemState = { equipped: [] };
-  for (const itemId of itemIds) {
-    equipItem(state, itemId);
+  constructor(readonly item: D) {
+    this.state = item.createState();
   }
-  return state;
+
+  getParams(stats?: PlayerStats): ItemParams {
+    return getItemParams(this.item, this.level, stats);
+  }
+
+  // Clamped to 1..maxLevel. Returns false if the level did not change.
+  setLevel(level: number): boolean {
+    const clamped = Math.min(getMaxLevel(this.item), Math.max(1, Math.floor(level)));
+    if (clamped === this.level) {
+      return false;
+    }
+    this.level = clamped;
+    return true;
+  }
+
+  update(context: ItemUpdateContext): void {
+    this.item.update(context, this.getParams(context.player.stats), this.state);
+  }
+
+  draw(context: ItemDrawContext): void {
+    this.item.draw(context, this.getParams(context.player.stats), this.state);
+  }
 }
 
-export function equipItem(state: ItemSystemState, itemId: ItemId): EquippedItem {
+export class EquippedActiveItem extends EquippedItem<AnyActiveItemDefinition> {
+  // Recharge progress from 0 (just used) to 1 (ready), as reported by the item.
+  getCharge(stats: PlayerStats): number {
+    return Math.max(0, Math.min(1, this.item.getCooldown(this.getParams(stats), this.state)));
+  }
+
+  // Does the item's effect if it is fully charged. Returns whether it fired.
+  useActive(context: ItemUpdateContext): boolean {
+    if (this.getCharge(context.player.stats) < 1) {
+      return false;
+    }
+    this.item.activate(context, this.getParams(context.player.stats), this.state);
+    return true;
+  }
+}
+
+export function createEquippedItem(itemId: ItemId): EquippedItem | EquippedActiveItem {
   const item = ITEM_DEFINITIONS[itemId];
-  const equipped: EquippedItem = { item, level: 1, state: item.createState() };
-  state.equipped.push(equipped);
-  return equipped;
-}
-
-export function unequipItem(state: ItemSystemState, slotIndex: number): void {
-  if (slotIndex >= 0 && slotIndex < state.equipped.length) {
-    state.equipped.splice(slotIndex, 1);
-  }
-}
-
-// Clamped to 1..maxLevel. Returns false if the level did not change.
-export function setItemLevel(state: ItemSystemState, slotIndex: number, level: number): boolean {
-  const equipped = state.equipped[slotIndex];
-  if (!equipped) {
-    return false;
-  }
-  const clamped = Math.min(getMaxLevel(equipped.item), Math.max(1, Math.floor(level)));
-  if (clamped === equipped.level) {
-    return false;
-  }
-  equipped.level = clamped;
-  return true;
-}
-
-export function updateItems(context: ItemUpdateContext, state: ItemSystemState): void {
-  for (const equipped of state.equipped) {
-    const params = getItemParams(equipped.item, equipped.level, context.player.stats);
-    equipped.item.update(context, params, equipped.state);
-  }
-}
-
-export function drawItems(context: ItemDrawContext, state: ItemSystemState): void {
-  for (const equipped of state.equipped) {
-    const params = getItemParams(equipped.item, equipped.level, context.player.stats);
-    equipped.item.draw(context, params, equipped.state);
-  }
+  return item.kind === "active" ? new EquippedActiveItem(item) : new EquippedItem(item);
 }

@@ -1,11 +1,11 @@
-import { defineItem } from "../itemTypes.js";
+import { definePassiveItem } from "../itemTypes.js";
 import type { HitFlashStyle } from "../vfx.js";
 
 // Periodic pulse that damages every enemy within a radius of the player.
 
 const HIT_FLASH: HitFlashStyle = { radius: 10, life: 0.16, color: "#ff9966" };
 
-export const aura = defineItem({
+export const aura = definePassiveItem({
   id: "aura",
   name: "Aura",
   maxLevel: 1,

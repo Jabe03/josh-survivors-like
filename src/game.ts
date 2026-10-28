@@ -18,11 +18,14 @@ type GameState = "start" | "running" | "paused" | "levelup" | "victory" | "dead"
 
 // Surviving this long wins the run; the player can then keep going in endless mode.
 const VICTORY_TIME = 300;
+// KeyboardEvent.code that uses the active item.
+const ACTIVE_ITEM_KEY = "Space";
 
 let gameState: GameState = "start";
 let confirmPressed = false;
 let restartPressed = false;
 let pausePressed = false;
+let activeItemPressed = false;
 let choiceKeyPressed: number | null = null;
 let pointerPressedAt: Vec2 | null = null;
 
@@ -74,6 +77,7 @@ function setGameState(next: GameState): void {
   confirmPressed = false;
   restartPressed = false;
   pausePressed = false;
+  activeItemPressed = false;
   choiceKeyPressed = null;
   pointerPressedAt = null;
 }
@@ -128,7 +132,7 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
 
 function pauseGame(): void {
   setGameState("paused");
-  pauseMenu?.open(world.player, world.items);
+  pauseMenu?.open(world.player);
 }
 
 function resumeGame(): void {
@@ -137,6 +141,10 @@ function resumeGame(): void {
 }
 
 function runFrame(dt: number): void {
+  if (activeItemPressed) {
+    activeItemPressed = false;
+    world.requestActiveItemUse();
+  }
   pendingLevelUps += world.step(dt, readMove());
   toasts.update(dt);
   if (world.player.health <= 0) {
@@ -164,6 +172,10 @@ export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext
     }
     if (e.code === "Space" || e.code === "Enter") {
       confirmPressed = true;
+    }
+    // Ignore auto-repeat so holding the key does not fire again the moment it recharges.
+    if (e.code === ACTIVE_ITEM_KEY && !e.repeat) {
+      activeItemPressed = true;
     }
     if (e.code === "Escape") {
       pausePressed = true;

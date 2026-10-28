@@ -1,5 +1,5 @@
 import { BASE_PLAYER_STATS, MAX_DODGE_CHANCE, type Player, type PlayerStats } from "./player.js";
-import { equipItem, getItemParams, getMaxLevel, ITEM_DEFINITIONS, setItemLevel, unequipItem, type ItemId, type ItemSystemState } from "./items.js";
+import { getItemParams, getMaxLevel, ITEM_DEFINITIONS, type EquippedItem, type ItemId } from "./items.js";
 import type { AnyItemDefinition, ParamScaling } from "./itemTypes.js";
 
 // Master switch for dev tools. When false, the dev-mode hotkey does nothing.
@@ -119,7 +119,6 @@ export class PauseMenu {
   private tab: PauseTab = "stats";
   private devMode = false;
   private player: Player | null = null;
-  private items: ItemSystemState | null = null;
 
   constructor(private readonly onResume: () => void) {
     this.root = el("div", "pause-menu");
@@ -149,9 +148,8 @@ export class PauseMenu {
     document.body.append(this.root);
   }
 
-  open(player: Player, items: ItemSystemState): void {
+  open(player: Player): void {
     this.player = player;
-    this.items = items;
     this.root.hidden = false;
     this.render();
   }
@@ -159,7 +157,6 @@ export class PauseMenu {
   close(): void {
     this.root.hidden = true;
     this.player = null;
-    this.items = null;
     // Give focus back to the game so movement keys are not typed into a field.
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
@@ -182,11 +179,11 @@ export class PauseMenu {
       tabButton.classList.toggle("active", tabButton.dataset.tab === this.tab);
     }
     this.body.replaceChildren();
-    if (!this.player || !this.items) {
+    if (!this.player) {
       return;
     }
     if (this.tab === "items") {
-      this.renderItems(this.items, this.player);
+      this.renderItems(this.player);
     } else {
       this.renderStats(this.player);
     }
@@ -242,12 +239,12 @@ export class PauseMenu {
     this.body.append(actions);
   }
 
-  private renderItems(items: ItemSystemState, player: Player): void {
+  private renderItems(player: Player): void {
     const table = el("table", "pause-table");
-    const header = ["#", "Item", "Level", "Stats (current values)"];
+    const header = ["#", "Item", "Type", "Level", "Stats (current values)"];
     table.append(row(this.devMode ? [...header, ""] : header, true));
 
-    items.equipped.forEach((equipped, slotIndex) => {
+    const addItemRow = (equipped: EquippedItem, label: string, remove: () => void) => {
       const params = el("span", "", formatItemParams(equipped.item, equipped.level, player));
       params.title = describeScaling(equipped.item);
 
@@ -255,7 +252,7 @@ export class PauseMenu {
       const level = el("span", "pause-level");
       if (this.devMode && maxLevel > 1) {
         const changeLevel = (delta: number) => {
-          if (setItemLevel(items, slotIndex, equipped.level + delta)) {
+          if (equipped.setLevel(equipped.level + delta)) {
             this.render();
           }
         };
@@ -264,19 +261,26 @@ export class PauseMenu {
         level.textContent = `${equipped.level}/${maxLevel}`;
       }
 
-      const cells: (string | HTMLElement)[] = [String(slotIndex + 1), equipped.item.name, level, params];
+      const cells: (string | HTMLElement)[] = [label, equipped.item.name, equipped.item.kind === "active" ? "Active" : "Passive", level, params];
       if (this.devMode) {
         cells.push(
           button("Remove", () => {
-            unequipItem(items, slotIndex);
+            remove();
             this.render();
           }),
         );
       }
       table.append(row(cells));
+    };
+
+    if (player.activeItem) {
+      addItemRow(player.activeItem, "A", () => player.unequipActive());
+    }
+    player.passiveItems.forEach((equipped, slotIndex) => {
+      addItemRow(equipped, String(slotIndex + 1), () => player.unequipPassive(slotIndex));
     });
 
-    if (items.equipped.length === 0) {
+    if (!player.activeItem && player.passiveItems.length === 0) {
       this.body.append(el("p", "pause-note", "No items equipped."));
     } else {
       this.body.append(table);
@@ -288,7 +292,9 @@ export class PauseMenu {
 
     const select = el("select", "pause-input pause-select");
     for (const itemId of ITEM_IDS) {
-      const option = el("option", "", ITEM_DEFINITIONS[itemId].name);
+      const item = ITEM_DEFINITIONS[itemId];
+      // Only one active item can be equipped, so adding one replaces the current one.
+      const option = el("option", "", item.kind === "active" ? `${item.name} (active, replaces current)` : item.name);
       option.value = itemId;
       select.append(option);
     }
@@ -296,7 +302,7 @@ export class PauseMenu {
     actions.append(
       select,
       button("Add item", () => {
-        equipItem(items, select.value as ItemId);
+        player.equipItem(select.value as ItemId);
         this.render();
       }),
     );

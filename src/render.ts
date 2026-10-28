@@ -1,6 +1,5 @@
 import { CELL, type Vec2 } from "./types.js";
 import { drawEnemy } from "./enemies.js";
-import { drawItems } from "./items.js";
 import { drawProjectiles } from "./projectiles.js";
 import type { World } from "./world.js";
 
@@ -48,7 +47,9 @@ export function drawWorld(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEleme
   ctx.arc(playerScreen.x, playerScreen.y, player.radius, 0, Math.PI * 2);
   ctx.fill();
 
-  drawItems({ ctx, player, worldToScreen }, world.items);
+  for (const item of player.allItems) {
+    item.draw({ ctx, player, worldToScreen });
+  }
   world.vfx.draw(ctx, "below", worldToScreen);
 
   for (const enemy of world.enemies) {

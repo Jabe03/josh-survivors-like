@@ -79,6 +79,32 @@ function drawHealthBar(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement,
   ctx.fillStyle = "#efe6d3";
   ctx.font = "12px monospace";
   ctx.fillText(`HP ${Math.ceil(player.health)} / ${player.stats.maxHealth}`, barX + 8, barY + 13);
+
+  drawActiveItemMeter(ctx, world, barX, barY + barH + 8, barW);
+}
+
+// Recharge meter for the active item, under the health bar.
+function drawActiveItemMeter(ctx: CanvasRenderingContext2D, world: World, x: number, y: number, w: number): void {
+  const activeItem = world.player.activeItem;
+  if (!activeItem) {
+    return;
+  }
+  const charge = activeItem.getCharge(world.player.stats);
+  const h = 8;
+  const ready = charge >= 1;
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+  ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+  ctx.fillStyle = "#1f2b3a";
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = ready ? "#a8d8ff" : "#4f7fa8";
+  ctx.fillRect(x, y, w * charge, h);
+  ctx.strokeStyle = ready ? "#e8f6ff" : "#6b5a80";
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.fillStyle = ready ? "#e8f6ff" : "#8f8299";
+  ctx.font = "12px monospace";
+  ctx.fillText(`${activeItem.item.name} ${ready ? "[SPACE]" : `${Math.floor(charge * 100)}%`}`, x, y + h + 14);
 }
 
 // Returns the bar's bottom edge, so the toast can sit below it.
@@ -122,7 +148,7 @@ function drawStagePanel(ctx: CanvasRenderingContext2D, world: World): void {
 }
 
 function drawItemPanel(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, world: World): void {
-  const equipped = world.items.equipped;
+  const equipped = world.player.allItems;
   const w = 240;
   const lineH = 18;
   const x = canvas.width - w - 16;
@@ -135,7 +161,8 @@ function drawItemPanel(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement,
   for (let i = 0; i < equipped.length; i += 1) {
     const { item, level } = equipped[i];
     const levelText = getMaxLevel(item) > 1 ? ` Lv${level}` : "";
-    ctx.fillText(`- ${item.name}${levelText}`, x + 10, y + 36 + i * lineH);
+    const kindText = item.kind === "active" ? " (active)" : "";
+    ctx.fillText(`- ${item.name}${levelText}${kindText}`, x + 10, y + 36 + i * lineH);
   }
 }
 

@@ -16,7 +16,7 @@ export interface ParamScaling {
 
 export type ParamScalingMap<P> = { [K in keyof P]?: ParamScaling };
 
-// What an item can do to the world: enemy queries, damage, projectiles, VFX, healing.
+// What an item can do to the world: enemy queries, damage, knockback, projectiles, VFX, healing.
 export type ItemUpdateContext = SimContext;
 
 export interface ItemDrawContext {
@@ -25,10 +25,9 @@ export interface ItemDrawContext {
   worldToScreen: (world: Vec2) => Vec2;
 }
 
-// One item: its data and its hooks. Each file in src/items/ exports one of these through
-// defineItem. Every field and hook is required; use {} or an empty function when an item
-// does not need one.
-export interface ItemDefinition<P extends ItemParams, S> {
+// Data and hooks every item has, passive or active. Every field and hook is required;
+// use {} or an empty function when an item does not need one.
+interface ItemBase<P extends ItemParams, S> {
   id: string;
   name: string;
   // 1 means the item has no levels.
@@ -40,19 +39,53 @@ export interface ItemDefinition<P extends ItemParams, S> {
   // Added to params for each level above 1.
   perLevel: Partial<P>;
 
-  // Called once per equipped copy; the result is passed back to update and draw.
+  // Called once per equipped copy; the result is passed back to the other hooks.
   createState(): S;
   // Called every physics substep. Params have level bonuses and stat scaling applied.
   update(context: ItemUpdateContext, params: P, state: S): void;
   // Called every frame for visuals that last as long as the item does. One-off visuals
-  // should use context.spawnVfx in update instead.
+  // should use context.spawnVfx instead.
   draw(context: ItemDrawContext, params: P, state: S): void;
 }
 
-// An item with its param and state types erased, for code that handles every item.
-export type AnyItemDefinition = ItemDefinition<ItemParams, unknown>;
+// Works on its own while equipped. Any number can be equipped.
+export interface PassiveItemDefinition<P extends ItemParams, S> extends ItemBase<P, S> {
+  kind: "passive";
+}
 
-// Checks an item against ItemDefinition and keeps its id as a literal type for ItemId.
-export function defineItem<const Id extends string, P extends ItemParams, S>(item: ItemDefinition<P, S> & { id: Id }): ItemDefinition<P, S> & { id: Id } {
-  return item;
+// Used by pressing the active-item key. Only one can be equipped at a time.
+export interface ActiveItemDefinition<P extends ItemParams, S> extends ItemBase<P, S> {
+  kind: "active";
+  // Recharge progress from 0 (just used) to 1 (ready). The item decides what fills it
+  // (time, kills, ...) by tracking that in its state, usually in update.
+  getCooldown(params: P, state: S): number;
+  // Called when the key is pressed and getCooldown returned 1 or more. Should reset
+  // whatever getCooldown reads.
+  activate(context: ItemUpdateContext, params: P, state: S): void;
+}
+
+export type ItemDefinition<P extends ItemParams, S> = PassiveItemDefinition<P, S> | ActiveItemDefinition<P, S>;
+
+// Items with their param and state types erased, for code that handles every item.
+export type AnyPassiveItemDefinition = PassiveItemDefinition<ItemParams, unknown>;
+export type AnyActiveItemDefinition = ActiveItemDefinition<ItemParams, unknown>;
+export type AnyItemDefinition = AnyPassiveItemDefinition | AnyActiveItemDefinition;
+
+// Each file in src/items/ exports one of these. They check the item against its interface,
+// fill in `kind`, and keep the id as a literal type for ItemId.
+export function definePassiveItem<const Id extends string, P extends ItemParams, S>(
+  item: Omit<PassiveItemDefinition<P, S>, "kind"> & { id: Id },
+): PassiveItemDefinition<P, S> & { id: Id } {
+  return { ...item, kind: "passive" };
+}
+
+export function defineActiveItem<const Id extends string, P extends ItemParams, S>(
+  item: Omit<ActiveItemDefinition<P, S>, "kind"> & { id: Id },
+): ActiveItemDefinition<P, S> & { id: Id } {
+  return { ...item, kind: "active" };
+}
+
+// Shared by time-based active items: getCooldown for a state that counts seconds since use.
+export function timeCooldown(elapsed: number, duration: number): number {
+  return duration <= 0 ? 1 : Math.min(1, elapsed / duration);
 }

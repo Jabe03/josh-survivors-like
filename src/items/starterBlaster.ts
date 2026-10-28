@@ -1,12 +1,12 @@
 import { cloneVec2 } from "../types.js";
-import { defineItem } from "../itemTypes.js";
+import { definePassiveItem } from "../itemTypes.js";
 import type { HitFlashStyle } from "../vfx.js";
 
 // Hitscan shot at the nearest enemy in range.
 
 const HIT_FLASH: HitFlashStyle = { radius: 8, life: 0.12, color: "#ffe6a8" };
 
-export const starterBlaster = defineItem({
+export const starterBlaster = definePassiveItem({
   id: "starter_blaster",
   name: "Default Attack",
   maxLevel: 1,

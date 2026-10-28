@@ -111,6 +111,8 @@ export interface ActiveEnemy {
   maxHealth: number;
   hitCooldown: number;
   behaviorState: unknown;
+  // While set, the enemy slides with this velocity instead of running its behavior.
+  knockback: { velocity: Vec2; timeLeft: number } | null;
 }
 
 export function createEnemy(template: EnemyTemplate, pos: Vec2, healthMultiplier = 1): ActiveEnemy {
@@ -122,6 +124,7 @@ export function createEnemy(template: EnemyTemplate, pos: Vec2, healthMultiplier
     maxHealth: health,
     hitCooldown: 0,
     behaviorState: getBehaviorHandler(template.behavior.id).createState(),
+    knockback: null,
   };
 }
 
