@@ -1,5 +1,6 @@
 import { BASE_PLAYER_STATS, MAX_DODGE_CHANCE, type Player, type PlayerStats } from "./player.js";
-import { equipItem, ITEM_DEFINITIONS, unequipItem, type ItemId, type ItemSystemState } from "./items.js";
+import { equipItem, getItemParams, getMaxLevel, ITEM_DEFINITIONS, setItemLevel, unequipItem, type ItemId, type ItemSystemState } from "./items.js";
+import type { AnyItemDefinition, ParamScaling } from "./itemTypes.js";
 
 // Master switch for dev tools. When false, the dev-mode hotkey does nothing.
 export const DEV_TOOLS_ENABLED = true;
@@ -61,9 +62,19 @@ function formatStat(key: StatKey, value: number): string {
   return text;
 }
 
-// "default_shoot" -> "Default Shoot"
-function humanize(id: string): string {
-  return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+// Params with level bonuses and the player's stats applied, e.g. "interval 0.35 · damage 7".
+function formatItemParams(item: AnyItemDefinition, level: number, player: Player): string {
+  return Object.entries(getItemParams(item, level, player.stats))
+    .map(([name, value]) => `${name} ${round(value, 2)}`)
+    .join(" · ");
+}
+
+// Hover text listing which stats affect which params.
+function describeScaling(item: AnyItemDefinition): string {
+  const rules = Object.entries(item.scaling as Record<string, ParamScaling | undefined>)
+    .filter((entry): entry is [string, ParamScaling] => entry[1] !== undefined)
+    .map(([name, rule]) => `${name} ${rule.mode === "multiply" ? "×" : "÷"} ${STAT_DISPLAY[rule.stat].label}`);
+  return rules.length > 0 ? `Scales: ${rules.join(", ")}` : "Not affected by stats";
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -175,7 +186,7 @@ export class PauseMenu {
       return;
     }
     if (this.tab === "items") {
-      this.renderItems(this.items);
+      this.renderItems(this.items, this.player);
     } else {
       this.renderStats(this.player);
     }
@@ -231,19 +242,29 @@ export class PauseMenu {
     this.body.append(actions);
   }
 
-  private renderItems(items: ItemSystemState): void {
+  private renderItems(items: ItemSystemState, player: Player): void {
     const table = el("table", "pause-table");
-    table.append(row(this.devMode ? ["#", "Item", "Effects (base values)", ""] : ["#", "Item", "Effects (base values)"], true));
+    const header = ["#", "Item", "Level", "Stats (current values)"];
+    table.append(row(this.devMode ? [...header, ""] : header, true));
 
     items.equipped.forEach((equipped, slotIndex) => {
-      const effects = el("div");
-      for (const effect of equipped.item.effects) {
-        const params = Object.entries(effect.params)
-          .map(([name, value]) => `${name} ${round(value, 2)}`)
-          .join(" · ");
-        effects.append(el("div", "", `${humanize(effect.effectId)}: ${params}`));
+      const params = el("span", "", formatItemParams(equipped.item, equipped.level, player));
+      params.title = describeScaling(equipped.item);
+
+      const maxLevel = getMaxLevel(equipped.item);
+      const level = el("span", "pause-level");
+      if (this.devMode && maxLevel > 1) {
+        const changeLevel = (delta: number) => {
+          if (setItemLevel(items, slotIndex, equipped.level + delta)) {
+            this.render();
+          }
+        };
+        level.append(button("−", () => changeLevel(-1)), ` ${equipped.level}/${maxLevel} `, button("+", () => changeLevel(1)));
+      } else {
+        level.textContent = `${equipped.level}/${maxLevel}`;
       }
-      const cells: (string | HTMLElement)[] = [String(slotIndex + 1), equipped.item.name, effects];
+
+      const cells: (string | HTMLElement)[] = [String(slotIndex + 1), equipped.item.name, level, params];
       if (this.devMode) {
         cells.push(
           button("Remove", () => {

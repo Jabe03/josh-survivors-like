@@ -1,35 +1,5 @@
-import type { Enemy, Vec2 } from "./types.js";
-
-export type EnemyKind = "normal" | "miniboss" | "boss";
-
-export interface EnemyTemplate {
-  kind: EnemyKind;
-  speed: number;
-  radius: number;
-  health: number;
-  damage: number;
-  hitInterval: number;
-  xpReward: number;
-  color: string;
-  healthBarColor: string;
-}
-
-const NORMAL_COLORS = { color: "#d66565", healthBarColor: "#ff7a7a" };
-const MINIBOSS_COLORS = { color: "#c6552f", healthBarColor: "#ffb07f" };
-const BOSS_COLORS = { color: "#9a2a2a", healthBarColor: "#ff9d9d" };
-
-// Shared enemy definitions. Stages reference these by id instead of copying stats.
-export const ENEMY_LIBRARY = {
-  normal_w1: { kind: "normal", speed: 95, radius: 12, health: 18, xpReward: 7, damage: 6, hitInterval: 0.9, ...NORMAL_COLORS },
-  normal_w2: { kind: "normal", speed: 120, radius: 13, health: 26, xpReward: 10, damage: 8, hitInterval: 0.8, ...NORMAL_COLORS },
-  normal_w3: { kind: "normal", speed: 145, radius: 14, health: 34, xpReward: 13, damage: 10, hitInterval: 0.7, ...NORMAL_COLORS },
-  normal_w4: { kind: "normal", speed: 185, radius: 15, health: 48, xpReward: 18, damage: 13, hitInterval: 0.58, ...NORMAL_COLORS },
-  miniboss_w3: { kind: "miniboss", speed: 105, radius: 24, health: 220, xpReward: 70, damage: 18, hitInterval: 0.9, ...MINIBOSS_COLORS },
-  miniboss_w4: { kind: "miniboss", speed: 120, radius: 26, health: 340, xpReward: 110, damage: 22, hitInterval: 0.82, ...MINIBOSS_COLORS },
-  boss_1: { kind: "boss", speed: 95, radius: 36, health: 700, xpReward: 240, damage: 28, hitInterval: 1, ...BOSS_COLORS },
-} satisfies Record<string, EnemyTemplate>;
-
-export type EnemyId = keyof typeof ENEMY_LIBRARY;
+import type { Vec2 } from "./types.js";
+import { createEnemy, ENEMY_LIBRARY, type ActiveEnemy, type EnemyId, type EnemyKind, type EnemyTemplate } from "./enemies.js";
 
 // Distance from the player at which each kind of enemy appears.
 const SPAWN_RING_BY_KIND: Record<EnemyKind, { min: number; max: number }> = {
@@ -66,17 +36,6 @@ export const ENDLESS_SCALING = {
   maxNormalsPerTier: 2,
 };
 
-export interface ActiveEnemy extends Enemy {
-  kind: EnemyKind;
-  health: number;
-  maxHealth: number;
-  damage: number;
-  hitInterval: number;
-  hitCooldown: number;
-  xpReward: number;
-  color: string;
-  healthBarColor: string;
-}
 
 export const DEFAULT_SPAWN_STAGES: SpawnStage[] = [
   {
@@ -153,7 +112,7 @@ function pickWeighted(entries: readonly SpawnTableEntry[]): EnemyId | null {
 function countNormals(enemies: readonly ActiveEnemy[]): number {
   let count = 0;
   for (const enemy of enemies) {
-    if (enemy.kind === "normal") {
+    if (enemy.template.kind === "normal") {
       count += 1;
     }
   }
@@ -260,26 +219,13 @@ export class EnemySpawnEngine {
 
   private spawnEnemyNear(playerPos: Vec2, template: EnemyTemplate): ActiveEnemy {
     const ring = SPAWN_RING_BY_KIND[template.kind];
-    const health = template.health * Math.pow(ENDLESS_SCALING.healthMultiplierPerTier, this.getEndlessTier());
+    const healthMultiplier = Math.pow(ENDLESS_SCALING.healthMultiplierPerTier, this.getEndlessTier());
     const angle = Math.random() * Math.PI * 2;
     const distance = ring.min + Math.random() * (ring.max - ring.min);
-
-    return {
-      kind: template.kind,
-      pos: {
-        x: playerPos.x + Math.cos(angle) * distance,
-        y: playerPos.y + Math.sin(angle) * distance,
-      },
-      radius: template.radius,
-      speed: template.speed,
-      health,
-      maxHealth: health,
-      damage: template.damage,
-      hitInterval: template.hitInterval,
-      hitCooldown: 0,
-      xpReward: template.xpReward,
-      color: template.color,
-      healthBarColor: template.healthBarColor,
+    const pos = {
+      x: playerPos.x + Math.cos(angle) * distance,
+      y: playerPos.y + Math.sin(angle) * distance,
     };
+    return createEnemy(template, pos, healthMultiplier);
   }
 }

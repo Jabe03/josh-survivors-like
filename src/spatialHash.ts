@@ -43,6 +43,25 @@ export class SpatialHash {
     return this.cells.get(SpatialHash.key(cx, cy));
   }
 
+  // Calls visit(index) for every item whose cell overlaps the square around pos. The caller
+  // still has to check the exact distance.
+  queryRadius(pos: Vec2, radius: number, visit: (index: number) => void): void {
+    const minX = this.cellCoord(pos.x - radius);
+    const maxX = this.cellCoord(pos.x + radius);
+    const minY = this.cellCoord(pos.y - radius);
+    const maxY = this.cellCoord(pos.y + radius);
+    for (let cy = minY; cy <= maxY; cy += 1) {
+      for (let cx = minX; cx <= maxX; cx += 1) {
+        const bucket = this.bucket(cx, cy);
+        if (bucket) {
+          for (const index of bucket) {
+            visit(index);
+          }
+        }
+      }
+    }
+  }
+
   // Coordinates wrap every 65536 cells; a collision only costs extra distance checks.
   private static key(cx: number, cy: number): number {
     return ((cx & 0xffff) << 16) | (cy & 0xffff);
