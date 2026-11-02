@@ -49,7 +49,7 @@ export const DEFAULT_SPAWN_STAGES: SpawnStage[] = [
     advanceOnClear: false,
   },
   {
-    startTime: 20,
+    startTime: 30,
     name: "Wave 2",
     clearOnEnter: false,
     spawnInterval: 0.22,
@@ -59,7 +59,7 @@ export const DEFAULT_SPAWN_STAGES: SpawnStage[] = [
     advanceOnClear: false,
   },
   {
-    startTime: 45,
+    startTime: 60,
     name: "Wave 3 - Miniboss",
     clearOnEnter: false,
     spawnInterval: 0.16,
@@ -69,7 +69,7 @@ export const DEFAULT_SPAWN_STAGES: SpawnStage[] = [
     advanceOnClear: false,
   },
   {
-    startTime: 80,
+    startTime: 120,
     name: "Boss Wave",
     clearOnEnter: true,
     spawnInterval: 99,
@@ -79,7 +79,7 @@ export const DEFAULT_SPAWN_STAGES: SpawnStage[] = [
     advanceOnClear: true,
   },
   {
-    startTime: 115,
+    startTime: 240,
     name: "Wave 4 - Miniboss",
     clearOnEnter: false,
     spawnInterval: 0.11,
