@@ -31,7 +31,7 @@ export const magmaOrb = definePassiveItem({
   maxLevel: 5,
   params: {
     // Seconds between casts.
-    interval: 1.6,
+    interval: 2.0,
     // Targets the nearest enemy within this distance; the orb flies this far at most.
     range: 420,
     speed: 420,
