@@ -3,7 +3,7 @@ import { SpatialHash } from "./spatialHash.js";
 import { BASE_PICKUP_RANGE, damagePlayer, healPlayer, Player } from "./player.js";
 import { DEFAULT_LEVEL_CURVE, grantExperience, xpToNextLevel } from "./leveling.js";
 import { DEFAULT_SPAWN_STAGES, EnemySpawnEngine } from "./spawnEngine.js";
-import { applyKnockback, moveEnemy, updateEnemyBehavior, type ActiveEnemy } from "./enemies.js";
+import { applyBurn, applyKnockback, BURN_HIT_FLASH, moveEnemy, tickBurn, updateEnemyBehavior, type ActiveEnemy } from "./enemies.js";
 import { createProjectile, type Projectile, type ProjectileSpec } from "./projectiles.js";
 import { VfxSystem, type HitFlashStyle, type VfxSpec } from "./vfx.js";
 
@@ -28,6 +28,8 @@ export interface SimContext {
   // Pushes the enemy `distance` units directly away from `from`, scaled by its template's
   // knockbackMultiplier. Adds to the enemy's own movement rather than replacing it.
   knockbackEnemy(enemy: ActiveEnemy, from: Vec2, distance: number): void;
+  // Sets the enemy burning for `duration` seconds. Burns don't stack; see applyBurn.
+  burnEnemy(enemy: ActiveEnemy, dps: number, duration: number): void;
   spawnProjectile(spec: ProjectileSpec): void;
   spawnVfx(spec: VfxSpec): void;
 }
@@ -161,6 +163,10 @@ export class World implements SimContext {
     applyKnockback(enemy, from, distance);
   }
 
+  burnEnemy(enemy: ActiveEnemy, dps: number, duration: number): void {
+    applyBurn(enemy, dps, duration);
+  }
+
 
   forEachEnemyTouching(pos: Vec2, radius: number, visit: (enemy: ActiveEnemy) => void): void {
     // Search wide enough to catch the largest enemy, then check exact overlap.
@@ -193,6 +199,10 @@ export class World implements SimContext {
   private updateEnemies(stepMoveX: number, stepMoveY: number): void {
     for (const enemy of this.enemies) {
       enemy.hitCooldown = Math.max(0, enemy.hitCooldown - this.dt);
+      const burnDamage = tickBurn(enemy, this.dt);
+      if (burnDamage > 0) {
+        this.damageEnemy(enemy, burnDamage, BURN_HIT_FLASH);
+      }
       updateEnemyBehavior(enemy, this);
       moveEnemy(enemy, this.dt);
 
@@ -225,9 +235,12 @@ export class World implements SimContext {
           if (projectile.pierceLeft <= 0 || enemy.health <= 0 || projectile.hitEnemies.has(enemy)) {
             return;
           }
-          this.damageEnemy(enemy, projectile.damage, projectile.hitFlash);
+          if (projectile.damage > 0) {
+            this.damageEnemy(enemy, projectile.damage, projectile.hitFlash);
+          }
           projectile.hitEnemies.add(enemy);
           projectile.pierceLeft -= 1;
+          projectile.onHit?.(this, cloneVec2(projectile.pos), enemy);
         });
       } else {
         const reach = projectile.radius + this.player.radius;

@@ -1,5 +1,6 @@
 import { cloneVec2, type Vec2 } from "./types.js";
 import type { SimContext } from "./world.js";
+import type { HitFlashStyle } from "./vfx.js";
 
 export type EnemyKind = "normal" | "miniboss" | "boss";
 
@@ -123,6 +124,8 @@ export interface ActiveEnemy {
   // knockbackTimeLeft runs out. Zero when not being pushed.
   knockbackVelocity: Vec2;
   knockbackTimeLeft: number;
+  // Null when not burning.
+  burn: BurnStatus | null;
 }
 
 export function createEnemy(template: EnemyTemplate, pos: Vec2, healthMultiplier = 1): ActiveEnemy {
@@ -137,6 +140,7 @@ export function createEnemy(template: EnemyTemplate, pos: Vec2, healthMultiplier
     moveVelocity: { x: 0, y: 0 },
     knockbackVelocity: { x: 0, y: 0 },
     knockbackTimeLeft: 0,
+    burn: null,
   };
 }
 
@@ -176,6 +180,51 @@ export function moveEnemy(enemy: ActiveEnemy, dt: number): void {
   enemy.pos.y += enemy.moveVelocity.y * dt + kbDy;
 }
 
+// ---- Status effects ----
+
+// Seconds between burn damage ticks, shared by every burn.
+export const BURN_TICK_INTERVAL = 0.5;
+export const BURN_HIT_FLASH: HitFlashStyle = { radius: 5, life: 0.1, color: "#ff8a3d" };
+
+// Damage over time. Ticks are counted rather than timed, so a burn deals exactly dps * duration.
+export interface BurnStatus {
+  dps: number;
+  ticksLeft: number;
+  // Counts down to the next tick.
+  tickTimer: number;
+}
+
+// Burns don't stack: reapplying keeps the stronger dps and the longer remaining duration,
+// so overlapping hits can't multiply burn damage.
+export function applyBurn(enemy: ActiveEnemy, dps: number, duration: number): void {
+  const ticks = Math.max(1, Math.round(duration / BURN_TICK_INTERVAL));
+  if (!enemy.burn) {
+    // The first tick waits a full interval, so it doesn't land on the same frame as the hit.
+    enemy.burn = { dps, ticksLeft: ticks, tickTimer: BURN_TICK_INTERVAL };
+    return;
+  }
+  enemy.burn.dps = Math.max(enemy.burn.dps, dps);
+  enemy.burn.ticksLeft = Math.max(enemy.burn.ticksLeft, ticks);
+}
+
+// Advances the burn and returns the damage due this step (0 between ticks).
+export function tickBurn(enemy: ActiveEnemy, dt: number): number {
+  const burn = enemy.burn;
+  if (!burn) {
+    return 0;
+  }
+  burn.tickTimer -= dt;
+  if (burn.tickTimer > 0) {
+    return 0;
+  }
+  burn.tickTimer += BURN_TICK_INTERVAL;
+  burn.ticksLeft -= 1;
+  if (burn.ticksLeft <= 0) {
+    enemy.burn = null;
+  }
+  return burn.dps * BURN_TICK_INTERVAL;
+}
+
 export function updateEnemyBehavior(enemy: ActiveEnemy, context: SimContext): void {
   const behavior = enemy.template.behavior;
   getBehaviorHandler(behavior.id).update(enemy, context, behavior.params, enemy.behaviorState);
@@ -187,6 +236,15 @@ export function drawEnemy(ctx: CanvasRenderingContext2D, enemy: ActiveEnemy, scr
   ctx.beginPath();
   SHAPE_PATHS[visual.shape](ctx, screen.x, screen.y, radius);
   ctx.fill();
+
+  if (enemy.burn) {
+    ctx.strokeStyle = "#ff8a3d";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    SHAPE_PATHS[visual.shape](ctx, screen.x, screen.y, radius + 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
 
   const hpRatio = enemy.health / enemy.maxHealth;
   const hpW = radius * 2;

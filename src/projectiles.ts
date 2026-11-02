@@ -1,6 +1,10 @@
 import { cloneVec2, type Vec2 } from "./types.js";
 import type { ActiveEnemy } from "./enemies.js";
 import type { HitFlashStyle } from "./vfx.js";
+import type { SimContext } from "./world.js";
+
+// Called after a player projectile hits an enemy, with where the hit happened (e.g. to explode).
+export type ProjectileHitHandler = (context: SimContext, pos: Vec2, enemy: ActiveEnemy) => void;
 
 // "player" projectiles hit enemies; "enemy" projectiles hit the player.
 export type ProjectileTeam = "player" | "enemy";
@@ -10,6 +14,7 @@ export interface ProjectileSpec {
   pos: Vec2;
   velocity: Vec2;
   radius: number;
+  // Direct-hit damage. 0 skips the direct hit, for projectiles whose onHit does the damage.
   damage: number;
   // Seconds before it disappears on its own.
   life: number;
@@ -17,6 +22,7 @@ export interface ProjectileSpec {
   pierce?: number;
   color: string;
   hitFlash?: HitFlashStyle;
+  onHit?: ProjectileHitHandler;
 }
 
 export interface Projectile {
@@ -29,6 +35,7 @@ export interface Projectile {
   pierceLeft: number;
   color: string;
   hitFlash?: HitFlashStyle;
+  onHit?: ProjectileHitHandler;
   // Enemies already hit, so a piercing shot damages each one only once.
   hitEnemies: Set<ActiveEnemy>;
 }
@@ -44,6 +51,7 @@ export function createProjectile(spec: ProjectileSpec): Projectile {
     pierceLeft: spec.pierce ?? 1,
     color: spec.color,
     hitFlash: spec.hitFlash,
+    onHit: spec.onHit,
     hitEnemies: new Set(),
   };
 }
