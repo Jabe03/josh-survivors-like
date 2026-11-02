@@ -1,5 +1,8 @@
-import { getMaxLevel } from "./items.js";
+import { getMaxLevel, MAX_PASSIVE_ITEMS } from "./items.js";
 import { statUpFractions } from "./leveling.js";
+import { MAX_STAT_LEVEL, MAX_STAT_LINES, UPGRADE_DEFINITIONS } from "./upgrades.js";
+import { drawLevelPips } from "./screens.js";
+import { formatTime } from "./format.js";
 import type { World } from "./world.js";
 
 const TOAST_DURATION = 2.4;
@@ -150,25 +153,122 @@ function drawStagePanel(ctx: CanvasRenderingContext2D, world: World): void {
   ctx.fillText(`Stage: ${stageInfo.index + 1}`, x + 10, y + 18);
   ctx.fillText(`${stageInfo.label}${endlessTier > 0 ? ` +${endlessTier}` : ""}`, x + 10, y + 34);
   ctx.fillText(`Enemies: ${world.enemies.length}/${stageInfo.targetEnemyCount}`, x + 10, y + 50);
-  ctx.fillText(`Time: ${Math.floor(spawnEngine.getElapsedTime())}s`, x + 10, y + 66);
+  ctx.fillText(`Time: ${formatTime(spawnEngine.getElapsedTime())}`, x + 10, y + 66);
 }
 
-function drawItemPanel(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, world: World): void {
-  const equipped = world.player.allItems;
-  const w = 240;
-  const lineH = 18;
-  const x = canvas.width - w - 16;
-  const y = 16;
-  drawPanel(ctx, x, y, w, 34 + Math.max(1, equipped.length) * lineH);
+// Shortens text with "…" until it fits maxWidth in the current font.
+function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) {
+    return text;
+  }
+  let cut = text;
+  while (cut.length > 1 && ctx.measureText(`${cut}…`).width > maxWidth) {
+    cut = cut.slice(0, -1);
+  }
+  return `${cut}…`;
+}
+
+// What one slot in the bottom bar shows. null is an empty slot.
+interface SlotContent {
+  name: string;
+  level: number;
+  maxLevel: number;
+  // Active item only: recharge progress from 0 to 1.
+  charge?: number;
+}
+
+interface SlotGroup {
+  label: string;
+  accent: string;
+  slots: (SlotContent | null)[];
+}
+
+const SLOT_H = 46;
+const SLOT_GAP = 6;
+const GROUP_GAP = 24;
+
+function drawSlot(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, slot: SlotContent | null, accent: string): void {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+  ctx.fillRect(x, y, w, SLOT_H);
+
+  if (!slot) {
+    ctx.strokeStyle = "#3a2f48";
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, SLOT_H - 1);
+    ctx.fillStyle = "#4f4560";
+    ctx.font = "11px monospace";
+    const text = "empty";
+    ctx.fillText(text, x + w / 2 - ctx.measureText(text).width / 2, y + SLOT_H / 2 + 4);
+    return;
+  }
+
+  if (slot.charge !== undefined) {
+    // Recharge fills the slot from the bottom; bright once ready.
+    const ready = slot.charge >= 1;
+    ctx.fillStyle = ready ? "rgba(168, 216, 255, 0.28)" : "rgba(79, 127, 168, 0.3)";
+    const fillH = SLOT_H * slot.charge;
+    ctx.fillRect(x, y + SLOT_H - fillH, w, fillH);
+  }
+  ctx.strokeStyle = accent;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, SLOT_H - 1);
 
   ctx.fillStyle = "#efe6d3";
   ctx.font = "12px monospace";
-  ctx.fillText("Items", x + 10, y + 18);
-  for (let i = 0; i < equipped.length; i += 1) {
-    const { item, level } = equipped[i];
-    const levelText = getMaxLevel(item) > 1 ? ` Lv${level}` : "";
-    const kindText = item.kind === "active" ? " (active)" : "";
-    ctx.fillText(`- ${item.name}${levelText}${kindText}`, x + 10, y + 36 + i * lineH);
+  ctx.fillText(fitText(ctx, slot.name, w - 12), x + 6, y + 17);
+  if (slot.maxLevel > 1) {
+    drawLevelPips(ctx, x + 6, y + 26, slot.level, slot.maxLevel, null, 6);
+  }
+  if (slot.charge !== undefined && slot.charge >= 1) {
+    ctx.fillStyle = "#a8d8ff";
+    ctx.font = "10px monospace";
+    const key = "SPACE";
+    ctx.fillText(key, x + w - 6 - ctx.measureText(key).width, y + SLOT_H - 6);
+  }
+}
+
+// Fixed slots along the bottom of the screen: passive items, the active item and stat lines.
+// Empty slots are drawn too, so the caps are visible at a glance.
+function drawSlotBar(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, world: World): void {
+  const player = world.player;
+  const itemSlots: (SlotContent | null)[] = [];
+  for (let i = 0; i < Math.max(MAX_PASSIVE_ITEMS, player.passiveItems.length); i += 1) {
+    const equipped = player.passiveItems[i];
+    itemSlots.push(equipped ? { name: equipped.item.name, level: equipped.level, maxLevel: getMaxLevel(equipped.item) } : null);
+  }
+  const active = player.activeItem;
+  const statSlots: (SlotContent | null)[] = [];
+  const lines = [...player.statLines];
+  for (let i = 0; i < Math.max(MAX_STAT_LINES, lines.length); i += 1) {
+    const line = lines[i];
+    const upgrade = line && UPGRADE_DEFINITIONS.find((u) => u.id === line[0]);
+    statSlots.push(line ? { name: upgrade?.name ?? line[0], level: line[1], maxLevel: MAX_STAT_LEVEL } : null);
+  }
+
+  const groups: SlotGroup[] = [
+    { label: `ITEMS ${player.passiveItems.length}/${MAX_PASSIVE_ITEMS}`, accent: "#9be27d", slots: itemSlots },
+    {
+      label: "ACTIVE",
+      accent: "#a8d8ff",
+      slots: [active ? { name: active.item.name, level: active.level, maxLevel: getMaxLevel(active.item), charge: active.getCharge(player.stats) } : null],
+    },
+    { label: `STAT LINES ${player.statLines.size}/${MAX_STAT_LINES}`, accent: "#b5a8ff", slots: statSlots },
+  ];
+
+  const slotCount = groups.reduce((sum, g) => sum + g.slots.length, 0);
+  const gaps = groups.reduce((sum, g) => sum + (g.slots.length - 1) * SLOT_GAP, 0) + (groups.length - 1) * GROUP_GAP;
+  const slotW = Math.max(60, Math.min(118, (canvas.width - 32 - gaps) / slotCount));
+  const totalW = slotCount * slotW + gaps;
+  const y = canvas.height - SLOT_H - 16;
+  let x = canvas.width / 2 - totalW / 2;
+
+  for (const group of groups) {
+    ctx.fillStyle = "#8f8299";
+    ctx.font = "11px monospace";
+    ctx.fillText(group.label, x, y - 6);
+    for (const slot of group.slots) {
+      drawSlot(ctx, x, y, slotW, slot, group.accent);
+      x += slotW + SLOT_GAP;
+    }
+    x += GROUP_GAP - SLOT_GAP;
   }
 }
 
@@ -177,5 +277,5 @@ export function drawHud(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement
   const xpBarBottom = drawXpBar(ctx, canvas, world);
   toasts.draw(ctx, canvas, xpBarBottom + 10);
   drawStagePanel(ctx, world);
-  drawItemPanel(ctx, canvas, world);
+  drawSlotBar(ctx, canvas, world);
 }

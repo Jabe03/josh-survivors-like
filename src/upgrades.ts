@@ -1,6 +1,7 @@
 import { healPlayer, type Player, type PlayerStats } from "./player.js";
-import { getMaxLevel, ITEM_DEFINITIONS, MAX_PASSIVE_ITEMS, type ItemId } from "./items.js";
+import { getItemParams, getMaxLevel, ITEM_DEFINITIONS, MAX_PASSIVE_ITEMS, type EquippedItem, type ItemId } from "./items.js";
 import type { AnyItemDefinition } from "./itemTypes.js";
+import { formatStat, paramLabel, round, STAT_DISPLAY } from "./format.js";
 
 // Any numeric player stat can be upgraded; adding a stat to PlayerStats is enough.
 export type UpgradeStatKey = keyof PlayerStats;
@@ -89,10 +90,26 @@ export const MAX_STAT_LEVEL = 5;
 // Heal given by the fallback card, as a fraction of max health.
 const RECOVER_FRACTION = 0.3;
 
+export type UpgradeChoiceKind = "newItem" | "itemLevel" | "newStat" | "statLevel" | "recover";
+
+// One value a card changes, shown as "label before -> after".
+export interface UpgradeChange {
+  label: string;
+  before: string;
+  after: string;
+}
+
 // One card on the upgrade screen: what it says, and what picking it does.
 export interface UpgradeChoice {
+  kind: UpgradeChoiceKind;
   name: string;
+  // One line, used on the card when there are no `changes` and in the toast after picking.
   description: string;
+  // Level before picking and the max, for the card's level pips. Picking adds one.
+  level?: { current: number; max: number };
+  changes: UpgradeChange[];
+  // Something worth knowing before picking, e.g. that it fills the last free slot.
+  note?: string;
   apply(player: Player): void;
 }
 
@@ -106,12 +123,35 @@ function shuffled<T>(items: readonly T[]): T[] {
 }
 
 // Offered when every stat line and item is maxed, so the upgrade screen is never empty.
-function recoverChoice(): UpgradeChoice {
+function recoverChoice(player: Player): UpgradeChoice {
+  const healed = Math.min(player.stats.maxHealth, player.health + player.stats.maxHealth * RECOVER_FRACTION);
   return {
+    kind: "recover",
     name: "Recover",
     description: `Heal ${Math.round(RECOVER_FRACTION * 100)}% of max health`,
-    apply: (player) => healPlayer(player, player.stats.maxHealth * RECOVER_FRACTION),
+    changes: [{ label: "Health", before: String(Math.ceil(player.health)), after: String(Math.ceil(healed)) }],
+    note: "Everything is maxed out.",
+    apply: (target) => healPlayer(target, target.stats.maxHealth * RECOVER_FRACTION),
   };
+}
+
+// The player's stats before and after a stat line's modifiers, one change per stat.
+function statChanges(player: Player, upgrade: UpgradeDefinition): UpgradeChange[] {
+  return upgrade.modifiers.map(({ stat, amount }) => ({
+    label: STAT_DISPLAY[stat].label,
+    before: formatStat(stat, player.stats[stat]),
+    after: formatStat(stat, player.stats[stat] + amount),
+  }));
+}
+
+// An item's real param values (after stats) at its current and next level, for params the
+// level changes.
+function itemLevelChanges(player: Player, equipped: EquippedItem): UpgradeChange[] {
+  const before = equipped.getParams(player.stats);
+  const after = getItemParams(equipped.item, equipped.level + 1, player.stats);
+  return Object.keys(before)
+    .filter((name) => round(before[name], 2) !== round(after[name], 2))
+    .map((name) => ({ label: paramLabel(name), before: round(before[name], 2), after: round(after[name], 2) }));
 }
 
 // Takes or levels up a stat line.
@@ -130,25 +170,25 @@ export function chooseStatOptions(player: Player, count: number = UPGRADE_CHOICE
     if (level >= MAX_STAT_LEVEL || (level === 0 && !canTakeNew)) {
       continue;
     }
+    const lastSlot = level === 0 && player.statLines.size === MAX_STAT_LINES - 1;
     pool.push({
-      name: level === 0 ? `New: ${upgrade.name}` : `${upgrade.name} Lv${level + 1}`,
+      kind: level === 0 ? "newStat" : "statLevel",
+      name: upgrade.name,
       description: upgrade.description,
+      level: { current: level, max: MAX_STAT_LEVEL },
+      changes: statChanges(player, upgrade),
+      note: lastSlot ? "Fills your last stat slot." : undefined,
       apply: (target) => applyStatLine(target, upgrade),
     });
   }
-  return pool.length > 0 ? shuffled(pool).slice(0, count) : [recoverChoice()];
-}
-
-// "explosionRadius" -> "explosion radius", for describing params on cards.
-function paramLabel(name: string): string {
-  return name.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+  return pool.length > 0 ? shuffled(pool).slice(0, count) : [recoverChoice(player)];
 }
 
 // What the next level adds, e.g. "damage +6, explosion radius +8" (before stat scaling).
 function describeLevelUp(item: AnyItemDefinition): string {
   const parts = Object.entries(item.perLevel)
     .filter((entry): entry is [string, number] => entry[1] !== undefined && entry[1] !== 0)
-    .map(([name, amount]) => `${paramLabel(name)} ${amount > 0 ? "+" : ""}${Number(amount.toFixed(2))}`);
+    .map(([name, amount]) => `${paramLabel(name).toLowerCase()} ${amount > 0 ? "+" : ""}${round(amount, 2)}`);
   return parts.length > 0 ? parts.join(", ") : "Stronger";
 }
 
@@ -164,8 +204,11 @@ export function chooseItemOptions(player: Player, count: number = UPGRADE_CHOICE
     ownedIds.add(equipped.item.id);
     if (equipped.level < getMaxLevel(equipped.item)) {
       pool.push({
-        name: `${equipped.item.name} Lv${equipped.level + 1}`,
+        kind: "itemLevel",
+        name: equipped.item.name,
         description: describeLevelUp(equipped.item),
+        level: { current: equipped.level, max: getMaxLevel(equipped.item) },
+        changes: itemLevelChanges(player, equipped),
         apply: () => equipped.setLevel(equipped.level + 1),
       });
     }
@@ -177,10 +220,19 @@ export function chooseItemOptions(player: Player, count: number = UPGRADE_CHOICE
       continue;
     }
     // Only one active item can be equipped, so a new one replaces the current one.
-    const replaces = item.kind === "active" && player.activeItem ? ` Replaces ${player.activeItem.item.name}.` : "";
+    let note: string | undefined;
+    if (item.kind === "active") {
+      note = player.activeItem ? `Replaces ${player.activeItem.item.name}. Use with SPACE.` : "Active item: use with SPACE.";
+    } else if (player.passiveItems.length === MAX_PASSIVE_ITEMS - 1) {
+      note = "Fills your last item slot.";
+    }
     pool.push({
-      name: `New: ${item.name}`,
-      description: `${item.description}${replaces}`,
+      kind: "newItem",
+      name: item.name,
+      description: item.description,
+      level: { current: 0, max: getMaxLevel(item) },
+      changes: [],
+      note,
       apply: (target) => {
         target.equipItem(itemId);
       },

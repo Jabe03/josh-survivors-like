@@ -23,3 +23,7 @@ canvas{display:block;width:100vw;height:100vh}
 .pause-note{margin:0 0 .6em;color:#8f8299}
 .pause-actions{display:flex;gap:.6em;margin-top:1em;flex-wrap:wrap}
 .pause-footer{margin-top:1em;display:flex;justify-content:center}
+.pause-item-name{color:#d7f7c9}
+.pause-item-desc{color:#8f8299;font-size:.85em;margin-top:.2em}
+.pause-params{margin:0;padding:0;list-style:none}
+.pause-params li{white-space:nowrap}

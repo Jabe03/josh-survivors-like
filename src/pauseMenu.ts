@@ -1,6 +1,7 @@
-import { BASE_PLAYER_STATS, MAX_DODGE_CHANCE, type Player, type PlayerStats } from "./player.js";
+import { BASE_PLAYER_STATS, type Player } from "./player.js";
 import { getItemParams, getMaxLevel, ITEM_DEFINITIONS, type EquippedItem, type ItemId } from "./items.js";
 import type { AnyItemDefinition, ParamScaling } from "./itemTypes.js";
+import { formatStat, paramLabel, round, STAT_DISPLAY, STAT_KEYS } from "./format.js";
 import { MAX_STAT_LEVEL, MAX_STAT_LINES, UPGRADE_DEFINITIONS } from "./upgrades.js";
 
 // Master switch for dev tools. When false, the dev-mode hotkey does nothing.
@@ -8,74 +9,22 @@ export const DEV_TOOLS_ENABLED = true;
 // KeyboardEvent.code that toggles dev mode (editing controls in the pause menu).
 export const DEV_MODE_HOTKEY = "Backquote";
 
-type StatKey = keyof PlayerStats;
-type StatFormat = "flat" | "multiplier" | "chance" | "perSecond";
-
-interface StatDisplay {
-  label: string;
-  format: StatFormat;
-  // Step for the dev-mode number input.
-  step: number;
-}
-
-// Every stat must be listed here, so adding one to PlayerStats fails to compile until it is.
-const STAT_DISPLAY: Record<StatKey, StatDisplay> = {
-  maxHealth: { label: "Max Health", format: "flat", step: 10 },
-  healthRegenRate: { label: "Health Regen", format: "perSecond", step: 0.5 },
-  armor: { label: "Armor", format: "flat", step: 1 },
-  dodgeChance: { label: "Dodge Chance", format: "chance", step: 0.01 },
-  moveSpeed: { label: "Move Speed", format: "flat", step: 10 },
-  attackDamageMultiplier: { label: "Damage", format: "multiplier", step: 0.05 },
-  attackRateMultiplier: { label: "Attack Speed", format: "multiplier", step: 0.05 },
-  attackSizeMultiplier: { label: "Attack Size", format: "multiplier", step: 0.05 },
-  critChance: { label: "Crit Chance", format: "chance", step: 0.01 },
-  critDamageMultiplier: { label: "Crit Damage", format: "multiplier", step: 0.05 },
-  magnetRange: { label: "Magnet Range", format: "flat", step: 10 },
-  xpMultiplier: { label: "XP Gain", format: "multiplier", step: 0.05 },
-};
-
-const STAT_KEYS = Object.keys(STAT_DISPLAY) as StatKey[];
 const ITEM_IDS = Object.keys(ITEM_DEFINITIONS) as ItemId[];
 
-function round(value: number, digits: number): string {
-  return String(Number(value.toFixed(digits)));
+// Which stat scales each param, e.g. " (× Damage)", for the item details list.
+function scalingNote(item: AnyItemDefinition, param: string): string {
+  const rule = (item.scaling as Record<string, ParamScaling | undefined>)[param];
+  return rule ? ` (${rule.mode === "multiply" ? "×" : "÷"} ${STAT_DISPLAY[rule.stat].label})` : "";
 }
 
-function formatStat(key: StatKey, value: number): string {
-  let text: string;
-  switch (STAT_DISPLAY[key].format) {
-    case "flat":
-      text = round(value, 2);
-      break;
-    case "multiplier":
-      text = `${round(value * 100, 1)}%`;
-      break;
-    case "chance":
-      text = `${round(value * 100, 1)}%`;
-      break;
-    case "perSecond":
-      text = `${round(value, 2)}/s`;
-      break;
+// One line per param with level bonuses and the player's stats applied, e.g.
+// "Explosion radius 86 (× Attack Size)".
+function itemParamList(item: AnyItemDefinition, level: number, player: Player): HTMLUListElement {
+  const list = el("ul", "pause-params");
+  for (const [name, value] of Object.entries(getItemParams(item, level, player.stats))) {
+    list.append(el("li", "", `${paramLabel(name)} ${round(value, 2)}${scalingNote(item, name)}`));
   }
-  if (key === "dodgeChance" && value > MAX_DODGE_CHANCE) {
-    text += ` (capped at ${round(MAX_DODGE_CHANCE * 100, 1)}%)`;
-  }
-  return text;
-}
-
-// Params with level bonuses and the player's stats applied, e.g. "interval 0.35 · damage 7".
-function formatItemParams(item: AnyItemDefinition, level: number, player: Player): string {
-  return Object.entries(getItemParams(item, level, player.stats))
-    .map(([name, value]) => `${name} ${round(value, 2)}`)
-    .join(" · ");
-}
-
-// Hover text listing which stats affect which params.
-function describeScaling(item: AnyItemDefinition): string {
-  const rules = Object.entries(item.scaling as Record<string, ParamScaling | undefined>)
-    .filter((entry): entry is [string, ParamScaling] => entry[1] !== undefined)
-    .map(([name, rule]) => `${name} ${rule.mode === "multiply" ? "×" : "÷"} ${STAT_DISPLAY[rule.stat].label}`);
-  return rules.length > 0 ? `Scales: ${rules.join(", ")}` : "Not affected by stats";
+  return list;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -249,12 +198,14 @@ export class PauseMenu {
 
   private renderItems(player: Player): void {
     const table = el("table", "pause-table");
-    const header = ["#", "Item", "Type", "Level", "Stats (current values)"];
+    const header = ["#", "Item", "Level", "Stats (current values)"];
     table.append(row(this.devMode ? [...header, ""] : header, true));
 
     const addItemRow = (equipped: EquippedItem, label: string, remove: () => void) => {
-      const params = el("span", "", formatItemParams(equipped.item, equipped.level, player));
-      params.title = describeScaling(equipped.item);
+      const params = itemParamList(equipped.item, equipped.level, player);
+      const name = el("div", "pause-item-name", equipped.item.kind === "active" ? `${equipped.item.name} (active, SPACE)` : equipped.item.name);
+      const nameCell = el("div");
+      nameCell.append(name, el("div", "pause-item-desc", equipped.item.description));
 
       const maxLevel = getMaxLevel(equipped.item);
       const level = el("span", "pause-level");
@@ -269,7 +220,7 @@ export class PauseMenu {
         level.textContent = `${equipped.level}/${maxLevel}`;
       }
 
-      const cells: (string | HTMLElement)[] = [label, equipped.item.name, equipped.item.kind === "active" ? "Active" : "Passive", level, params];
+      const cells: (string | HTMLElement)[] = [label, nameCell, level, params];
       if (this.devMode) {
         cells.push(
           button("Remove", () => {

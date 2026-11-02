@@ -48,8 +48,22 @@ const CRIT_FLASH_SCALE = 1.6;
 const COLLECT_DISTANCE = 10;
 const QUERY_CELL_SIZE = 96;
 
+// Floating numbers over enemies when they take damage. Crits show bigger and white.
+export const SHOW_DAMAGE_NUMBERS = true;
+
+// Totals for the end-of-run summary.
+export interface RunStats {
+  kills: number;
+  // Item id -> damage dealt (health actually removed). Damage from no item is under "other".
+  damageBySource: Map<string, number>;
+}
+
 // One run's simulation: player, enemies, items, projectiles, XP and visual effects.
 export class World implements SimContext {
+  readonly runStats: RunStats = { kills: 0, damageBySource: new Map() };
+  // Item id that damage dealt right now is credited to. Set while an item updates or
+  // activates, and restored from projectiles and burns, so items don't have to pass it.
+  private damageSource: string | null = null;
   readonly player = new Player(xpToNextLevel(1, DEFAULT_LEVEL_CURVE));
   readonly enemies: ActiveEnemy[] = [];
   readonly xpOrbs: XpOrb[] = [];
@@ -86,12 +100,15 @@ export class World implements SimContext {
 
       this.rebuildQueryGrid();
       for (const item of this.player.allItems) {
+        this.damageSource = item.item.id;
         item.update(this);
       }
       if (this.activeItemRequested) {
         this.activeItemRequested = false;
+        this.damageSource = this.player.activeItem?.item.id ?? null;
         this.player.useActiveItem(this);
       }
+      this.damageSource = null;
       this.updateProjectiles();
 
       // Run a couple of separation passes for tighter clusters.
@@ -115,6 +132,7 @@ export class World implements SimContext {
     const hit = isCrit ? amount * this.player.stats.critDamageMultiplier : amount;
     const healthBefore = enemy.health;
     enemy.health = Math.max(0, enemy.health - hit);
+    const dealt = healthBefore - enemy.health;
 
     if (hitFlash) {
       this.vfx.spawnHitFlash(
@@ -122,7 +140,14 @@ export class World implements SimContext {
         isCrit ? { ...hitFlash, radius: hitFlash.radius * CRIT_FLASH_SCALE, color: CRIT_FLASH_COLOR } : hitFlash,
       );
     }
-    return healthBefore - enemy.health;
+    if (dealt > 0) {
+      const source = this.damageSource ?? "other";
+      this.runStats.damageBySource.set(source, (this.runStats.damageBySource.get(source) ?? 0) + dealt);
+      if (SHOW_DAMAGE_NUMBERS) {
+        this.spawnDamageNumber(enemy, dealt, isCrit, hitFlash?.color);
+      }
+    }
+    return dealt;
   }
 
   hurtPlayer(amount: number): boolean {
@@ -166,7 +191,7 @@ export class World implements SimContext {
   }
 
   burnEnemy(enemy: ActiveEnemy, dps: number, duration: number): void {
-    applyBurn(enemy, dps, duration);
+    applyBurn(enemy, dps, duration, this.damageSource);
   }
 
 
@@ -184,7 +209,7 @@ export class World implements SimContext {
   }
 
   spawnProjectile(spec: ProjectileSpec): void {
-    this.projectiles.push(createProjectile(spec));
+    this.projectiles.push(createProjectile(spec, this.damageSource));
   }
 
   spawnVfx(spec: VfxSpec): void {
@@ -198,12 +223,29 @@ export class World implements SimContext {
 
   // ---- Simulation steps ----
 
+  private spawnDamageNumber(enemy: ActiveEnemy, dealt: number, isCrit: boolean, color: string | undefined): void {
+    const text = dealt >= 1 ? String(Math.round(dealt)) : dealt.toFixed(1);
+    // A little sideways jitter so numbers from rapid hits don't stack exactly.
+    const pos = { x: enemy.pos.x + (Math.random() - 0.5) * 12, y: enemy.pos.y - enemy.template.radius };
+    this.vfx.spawn({
+      kind: "text",
+      pos,
+      life: isCrit ? 0.7 : 0.5,
+      layer: "above",
+      params: isCrit ? { text, color: CRIT_FLASH_COLOR, size: 16, rise: 30 } : { text, color: color ?? "#ffe9b0", size: 11, rise: 22 },
+    });
+  }
+
   private updateEnemies(stepMoveX: number, stepMoveY: number): void {
     for (const enemy of this.enemies) {
       enemy.hitCooldown = Math.max(0, enemy.hitCooldown - this.dt);
+      // Read before ticking, since the last tick clears the burn.
+      const burnSource = enemy.burn?.source ?? null;
       const burnDamage = tickBurn(enemy, this.dt);
       if (burnDamage > 0) {
+        this.damageSource = burnSource;
         this.damageEnemy(enemy, burnDamage, BURN_HIT_FLASH);
+        this.damageSource = null;
       }
       updateEnemyBehavior(enemy, this);
       moveEnemy(enemy, this.dt);
@@ -233,6 +275,7 @@ export class World implements SimContext {
       projectile.pos.y += projectile.velocity.y * this.dt;
 
       if (projectile.team === "player") {
+        this.damageSource = projectile.source;
         this.forEachEnemyTouching(projectile.pos, projectile.radius, (enemy) => {
           if (projectile.pierceLeft <= 0 || enemy.health <= 0 || projectile.hitEnemies.has(enemy)) {
             return;
@@ -244,6 +287,7 @@ export class World implements SimContext {
           projectile.pierceLeft -= 1;
           projectile.onHit?.(this, cloneVec2(projectile.pos), enemy);
         });
+        this.damageSource = null;
       } else {
         const reach = projectile.radius + this.player.radius;
         if (Math.hypot(this.player.pos.x - projectile.pos.x, this.player.pos.y - projectile.pos.y) < reach) {
@@ -290,6 +334,7 @@ export class World implements SimContext {
       if (enemy.health <= 0) {
         this.xpOrbs.push({ pos: cloneVec2(enemy.pos), value: enemy.template.xpReward, radius: 5 });
         swapRemove(this.enemies, i);
+        this.runStats.kills += 1;
       }
     }
   }

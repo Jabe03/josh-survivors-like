@@ -189,21 +189,26 @@ export const BURN_HIT_FLASH: HitFlashStyle = { radius: 5, life: 0.1, color: "#ff
 // Damage over time. Ticks are counted rather than timed, so a burn deals exactly dps * duration.
 export interface BurnStatus {
   dps: number;
+  // Item id the burn's damage is credited to, for the run summary.
+  source: string | null;
   ticksLeft: number;
   // Counts down to the next tick.
   tickTimer: number;
 }
 
 // Burns don't stack: reapplying keeps the stronger dps and the longer remaining duration,
-// so overlapping hits can't multiply burn damage.
-export function applyBurn(enemy: ActiveEnemy, dps: number, duration: number): void {
+// so overlapping hits can't multiply burn damage. The stronger burn's source gets the credit.
+export function applyBurn(enemy: ActiveEnemy, dps: number, duration: number, source: string | null = null): void {
   const ticks = Math.max(1, Math.round(duration / BURN_TICK_INTERVAL));
   if (!enemy.burn) {
     // The first tick waits a full interval, so it doesn't land on the same frame as the hit.
-    enemy.burn = { dps, ticksLeft: ticks, tickTimer: BURN_TICK_INTERVAL };
+    enemy.burn = { dps, source, ticksLeft: ticks, tickTimer: BURN_TICK_INTERVAL };
     return;
   }
-  enemy.burn.dps = Math.max(enemy.burn.dps, dps);
+  if (dps >= enemy.burn.dps) {
+    enemy.burn.dps = dps;
+    enemy.burn.source = source;
+  }
   enemy.burn.ticksLeft = Math.max(enemy.burn.ticksLeft, ticks);
 }
 

@@ -11,6 +11,8 @@ interface VfxParamsMap {
   line: { to: Vec2; color: string; width: number };
   // Circle outline that scales from startScale to endScale while fading from `alpha`.
   ring: { radius: number; color: string; width: number; startScale: number; endScale: number; alpha: number };
+  // Text that floats up by `rise` while fading out over its second half (damage numbers).
+  text: { text: string; color: string; size: number; rise: number };
 }
 
 export type VfxKind = keyof VfxParamsMap;
@@ -64,6 +66,19 @@ const VFX_DRAWERS: { [K in VfxKind]: VfxDrawer<VfxParamsMap[K]> } = {
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, params.radius * scale, 0, Math.PI * 2);
     ctx.stroke();
+  },
+  text: (ctx, screen, params, t) => {
+    ctx.globalAlpha = t < 0.5 ? 1 : 1 - (t - 0.5) * 2;
+    ctx.font = `bold ${params.size}px monospace`;
+    ctx.textAlign = "center";
+    // A dark outline keeps the numbers readable over bright effects.
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+    const y = screen.y - params.rise * t;
+    ctx.strokeText(params.text, screen.x, y);
+    ctx.fillStyle = params.color;
+    ctx.fillText(params.text, screen.x, y);
+    ctx.textAlign = "start";
   },
 };
 

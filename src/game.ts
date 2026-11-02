@@ -1,7 +1,8 @@
 import type { Vec2 } from "./types.js";
 import { isTextEntryTarget, readMove, setupInput } from "./input.js";
 import { DEV_MODE_HOTKEY, PauseMenu } from "./pauseMenu.js";
-import { chooseItemOptions, chooseStatOptions, type UpgradeChoice } from "./upgrades.js";
+import { chooseItemOptions, chooseStatOptions, MAX_STAT_LINES, type UpgradeChoice } from "./upgrades.js";
+import { MAX_PASSIVE_ITEMS } from "./items.js";
 import type { UpgradeReward } from "./leveling.js";
 import { World } from "./world.js";
 import { drawWorld } from "./render.js";
@@ -97,9 +98,17 @@ function consumeUpgradeChoice(): number | null {
   return choice !== null && choice < upgradeOptions.length ? choice : null;
 }
 
+const TOAST_PREFIX: Record<UpgradeChoice["kind"], string> = {
+  newItem: "New item",
+  itemLevel: "Item level up",
+  newStat: "New stat line",
+  statLevel: "Stat level up",
+  recover: "Recovered",
+};
+
 function grantUpgrade(choice: UpgradeChoice): void {
   choice.apply(world.player);
-  toasts.push(`${choice.name}: ${choice.description}`);
+  toasts.push(`${TOAST_PREFIX[choice.kind]}: ${choice.name} (${choice.description})`);
 }
 
 // Rolls the cards for the reward at the front of the queue.
@@ -132,27 +141,30 @@ function drawOverlay(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): 
     case "running":
       break;
     case "start":
-      drawStartScreen(ctx, canvas);
+      drawStartScreen(ctx, canvas, VICTORY_TIME);
       break;
     case "paused":
       drawPausedBackdrop(ctx, canvas);
       break;
     case "levelup":
-      upgradeCardRects = drawUpgradeChoice(
-        ctx,
-        canvas,
-        upgradeOptions,
-        pendingRewards[0] === "item" ? "Level Up! Choose an item" : "Stat Up!",
-        pendingRewards.length,
-      );
+      upgradeCardRects = drawUpgradeChoice(ctx, canvas, upgradeOptions, ...upgradeHeading(), pendingRewards.length);
       break;
     case "victory":
-      drawVictoryScreen(ctx, canvas, world.player.progression.level);
+      drawVictoryScreen(ctx, canvas, world);
       break;
     case "dead":
-      drawDeathScreen(ctx, canvas, world.player.progression.level, world.spawnEngine.getElapsedTime());
+      drawDeathScreen(ctx, canvas, world);
       break;
   }
+}
+
+// Heading and subtitle for the reward on screen, explaining what this pick is for.
+function upgradeHeading(): [string, string] {
+  const player = world.player;
+  if (pendingRewards[0] === "item") {
+    return ["Level Up!", `Choose a new item or level one up · Items ${player.passiveItems.length}/${MAX_PASSIVE_ITEMS}`];
+  }
+  return ["Stat Up!", `Choose a stat line or level one up · Stat lines ${player.statLines.size}/${MAX_STAT_LINES}`];
 }
 
 function pauseGame(): void {

@@ -36,11 +36,13 @@ export interface Projectile {
   color: string;
   hitFlash?: HitFlashStyle;
   onHit?: ProjectileHitHandler;
+  // Item id its damage is credited to, for the run summary. Set by World, not by the item.
+  source: string | null;
   // Enemies already hit, so a piercing shot damages each one only once.
   hitEnemies: Set<ActiveEnemy>;
 }
 
-export function createProjectile(spec: ProjectileSpec): Projectile {
+export function createProjectile(spec: ProjectileSpec, source: string | null = null): Projectile {
   return {
     team: spec.team,
     pos: cloneVec2(spec.pos),
@@ -52,6 +54,7 @@ export function createProjectile(spec: ProjectileSpec): Projectile {
     color: spec.color,
     hitFlash: spec.hitFlash,
     onHit: spec.onHit,
+    source,
     hitEnemies: new Set(),
   };
 }
