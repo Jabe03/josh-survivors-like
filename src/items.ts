@@ -17,10 +17,13 @@ const ERASED_ITEM_LIST: readonly AnyItemDefinition[] = ITEM_LIST;
 
 export const ITEM_DEFINITIONS = Object.fromEntries(ERASED_ITEM_LIST.map((item) => [item.id, item])) as Record<ItemId, AnyItemDefinition>;
 
-export const DEFAULT_EQUIPPED_ITEM_IDS: ItemId[] = ["starter_blaster", "aura", "blowback"];
+export const DEFAULT_EQUIPPED_ITEM_IDS: ItemId[] = ["starter_blaster"];
 
 // No item levels past this, whatever its maxLevel says.
 export const MAX_ITEM_LEVEL = 5;
+// Item cards stop offering new passive items once this many are held. The active item is
+// separate and doesn't count. Dev mode can still add more.
+export const MAX_PASSIVE_ITEMS = 4;
 
 export function getMaxLevel(item: AnyItemDefinition): number {
   return Math.min(MAX_ITEM_LEVEL, Math.max(1, item.maxLevel));

@@ -97,13 +97,13 @@ const BOSS_VISUAL: EnemyVisual = { shape: "circle", color: "#9a2a2a", healthBarC
 
 // Shared enemy definitions. Stages reference these by id instead of copying stats.
 export const ENEMY_LIBRARY = {
-  normal_w1: { kind: "normal", speed: 60, radius: 12, health: 18, xpReward: 7, damage: 6, hitInterval: 0.9, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
-  normal_w2: { kind: "normal", speed: 70, radius: 13, health: 26, xpReward: 10, damage: 8, hitInterval: 0.8, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
-  normal_w3: { kind: "normal", speed: 82, radius: 14, health: 34, xpReward: 13, damage: 10, hitInterval: 0.7, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
-  normal_w4: { kind: "normal", speed: 100, radius: 15, health: 48, xpReward: 18, damage: 13, hitInterval: 0.58, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
-  miniboss_w3: { kind: "miniboss", speed: 66, radius: 24, health: 220, xpReward: 70, damage: 18, hitInterval: 0.9, knockbackMultiplier: 1, behavior: CHASE, visual: MINIBOSS_VISUAL },
-  miniboss_w4: { kind: "miniboss", speed: 74, radius: 26, health: 340, xpReward: 110, damage: 22, hitInterval: 0.82, knockbackMultiplier: 1, behavior: CHASE, visual: MINIBOSS_VISUAL },
-  boss_1: { kind: "boss", speed: 62, radius: 36, health: 700, xpReward: 240, damage: 28, hitInterval: 1, knockbackMultiplier: 1, behavior: CHASE, visual: BOSS_VISUAL },
+  normal_w1: { kind: "normal", speed: 60, radius: 12, health: 18, xpReward: 4, damage: 6, hitInterval: 0.9, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
+  normal_w2: { kind: "normal", speed: 70, radius: 13, health: 26, xpReward: 6, damage: 8, hitInterval: 0.8, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
+  normal_w3: { kind: "normal", speed: 82, radius: 14, health: 34, xpReward: 8, damage: 10, hitInterval: 0.7, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
+  normal_w4: { kind: "normal", speed: 100, radius: 15, health: 48, xpReward: 11, damage: 13, hitInterval: 0.58, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
+  miniboss_w3: { kind: "miniboss", speed: 66, radius: 24, health: 220, xpReward: 42, damage: 18, hitInterval: 0.9, knockbackMultiplier: 1, behavior: CHASE, visual: MINIBOSS_VISUAL },
+  miniboss_w4: { kind: "miniboss", speed: 74, radius: 26, health: 340, xpReward: 66, damage: 22, hitInterval: 0.82, knockbackMultiplier: 1, behavior: CHASE, visual: MINIBOSS_VISUAL },
+  boss_1: { kind: "boss", speed: 62, radius: 36, health: 700, xpReward: 144, damage: 28, hitInterval: 1, knockbackMultiplier: 1, behavior: CHASE, visual: BOSS_VISUAL },
 } satisfies Record<string, EnemyTemplate>;
 
 export type EnemyId = keyof typeof ENEMY_LIBRARY;

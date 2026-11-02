@@ -12,7 +12,7 @@ export const starterBlaster = definePassiveItem({
   description: "Zaps the nearest enemy in range.",
   maxLevel: 5,
   params: {
-    interval: 0.35,
+    interval: 0.75,
     damage: 7,
     range: 480,
   },
@@ -22,8 +22,8 @@ export const starterBlaster = definePassiveItem({
     range: { stat: "attackSizeMultiplier", mode: "multiply" },
   },
   perLevel: {
-    damage: 3,
-    interval: -0.03,
+    damage: 2,
+    interval: -0.05,
   },
 
   createState: () => ({ cooldown: 0 }),

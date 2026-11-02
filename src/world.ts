@@ -1,6 +1,6 @@
 import { cloneVec2, swapRemove, type Vec2 } from "./types.js";
 import { SpatialHash } from "./spatialHash.js";
-import { BASE_PICKUP_RANGE, damagePlayer, healPlayer, Player } from "./player.js";
+import { damagePlayer, healPlayer, Player } from "./player.js";
 import { DEFAULT_LEVEL_CURVE, grantExperience, xpToNextLevel, type UpgradeReward } from "./leveling.js";
 import { DEFAULT_SPAWN_STAGES, EnemySpawnEngine } from "./spawnEngine.js";
 import { applyBurn, applyKnockback, BURN_HIT_FLASH, moveEnemy, tickBurn, updateEnemyBehavior, type ActiveEnemy } from "./enemies.js";
@@ -43,7 +43,9 @@ export interface XpOrb {
 const CRIT_FLASH_COLOR = "#ffffff";
 const CRIT_FLASH_SCALE = 1.6;
 
-const MAGNET_RANGE = 180;
+// An orb is collected once it is this close to the player's edge. Fixed; only the magnet
+// range (a player stat) scales.
+const COLLECT_DISTANCE = 10;
 const QUERY_CELL_SIZE = 96;
 
 // One run's simulation: player, enemies, items, projectiles, XP and visual effects.
@@ -259,9 +261,8 @@ export class World implements SimContext {
   // Pulls and collects XP orbs, adding any upgrade rewards earned to `rewards`.
   private updateXpOrbs(rewards: UpgradeReward[]): void {
     const player = this.player;
-    const pickupScale = player.stats.pickupRange / BASE_PICKUP_RANGE;
-    const magnetRange = MAGNET_RANGE * pickupScale;
-    const pickupRange = (player.radius + 10) * pickupScale;
+    const magnetRange = player.stats.magnetRange;
+    const collectRange = player.radius + COLLECT_DISTANCE;
 
     for (let i = this.xpOrbs.length - 1; i >= 0; i -= 1) {
       const orb = this.xpOrbs[i];
@@ -275,7 +276,7 @@ export class World implements SimContext {
         orb.pos.y += (dy / dist) * pullSpeed * this.dt;
       }
 
-      if (dist < pickupRange + orb.radius) {
+      if (dist < collectRange + orb.radius) {
         const gainedXp = orb.value * player.stats.xpMultiplier;
         rewards.push(...grantExperience(player.progression, gainedXp, DEFAULT_LEVEL_CURVE));
         swapRemove(this.xpOrbs, i);

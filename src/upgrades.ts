@@ -1,5 +1,5 @@
 import { healPlayer, type Player, type PlayerStats } from "./player.js";
-import { getMaxLevel, ITEM_DEFINITIONS, type ItemId } from "./items.js";
+import { getMaxLevel, ITEM_DEFINITIONS, MAX_PASSIVE_ITEMS, type ItemId } from "./items.js";
 import type { AnyItemDefinition } from "./itemTypes.js";
 
 // Any numeric player stat can be upgraded; adding a stat to PlayerStats is enough.
@@ -17,82 +17,77 @@ export interface UpgradeDefinition {
   modifiers: StatModifier[];
 }
 
+// Every stat line a stat-up card can offer. Related stats are bundled into one line so there
+// are fewer, clearer choices. `description` is what each level adds.
 export const UPGRADE_DEFINITIONS: UpgradeDefinition[] = [
   {
-    id: "move_speed_up",
-    name: "Move Speed Up",
+    id: "move_speed",
+    name: "Move Speed",
     description: "+18 movement speed",
     modifiers: [{ stat: "moveSpeed", amount: 18 }],
   },
   {
-    id: "damage_up",
-    name: "Damage Up",
-    description: "+15% damage",
-    modifiers: [{ stat: "attackDamageMultiplier", amount: 0.15 }],
+    id: "power",
+    name: "Power",
+    description: "+15% damage, +12% attack size",
+    modifiers: [
+      { stat: "attackDamageMultiplier", amount: 0.15 },
+      { stat: "attackSizeMultiplier", amount: 0.12 },
+    ],
   },
   {
-    id: "attack_speed_up",
-    name: "Attack Speed Up",
+    id: "attack_speed",
+    name: "Attack Speed",
     description: "+12% attack speed",
     modifiers: [{ stat: "attackRateMultiplier", amount: 0.12 }],
   },
   {
-    id: "attack_size_up",
-    name: "Attack Size Up",
-    description: "+12% attack size",
-    modifiers: [{ stat: "attackSizeMultiplier", amount: 0.12 }],
+    id: "vitality",
+    name: "Vitality",
+    description: "+20 max health, +0.5 health regen per second",
+    modifiers: [
+      { stat: "maxHealth", amount: 20 },
+      { stat: "healthRegenRate", amount: 0.5 },
+    ],
   },
   {
-    id: "max_health_up",
-    name: "Max Health Up",
-    description: "+20 max health",
-    modifiers: [{ stat: "maxHealth", amount: 20 }],
+    id: "crit",
+    name: "Crit",
+    description: "+3% crit chance, +15% crit damage",
+    modifiers: [
+      { stat: "critChance", amount: 0.03 },
+      { stat: "critDamageMultiplier", amount: 0.15 },
+    ],
   },
   {
-    id: "health_regen_up",
-    name: "Health Regen Up",
-    description: "+0.5 health regen per second",
-    modifiers: [{ stat: "healthRegenRate", amount: 0.5 }],
+    id: "insight",
+    name: "Insight",
+    description: "+25 magnet range, +10% XP gain",
+    modifiers: [
+      { stat: "magnetRange", amount: 25 },
+      { stat: "xpMultiplier", amount: 0.1 },
+    ],
   },
   {
-    id: "crit_chance_up",
-    name: "Crit Chance Up",
-    description: "+3% crit chance",
-    modifiers: [{ stat: "critChance", amount: 0.03 }],
-  },
-  {
-    id: "crit_damage_up",
-    name: "Crit Damage Up",
-    description: "+15% crit damage multiplier",
-    modifiers: [{ stat: "critDamageMultiplier", amount: 0.15 }],
-  },
-  {
-    id: "pickup_range_up",
-    name: "Pickup Range Up",
-    description: "+10 pickup range",
-    modifiers: [{ stat: "pickupRange", amount: 10 }],
-  },
-  {
-    id: "xp_multiplier_up",
-    name: "XP Multiplier Up",
-    description: "+10% XP gain",
-    modifiers: [{ stat: "xpMultiplier", amount: 0.1 }],
-  },
-  {
-    id: "dodge_chance_up",
-    name: "Dodge Chance Up",
+    id: "dodge",
+    name: "Dodge",
     description: "+3% dodge chance",
     modifiers: [{ stat: "dodgeChance", amount: 0.03 }],
   },
   {
-    id: "armor_up",
-    name: "Armor Up",
+    id: "armor",
+    name: "Armor",
     description: "+2 armor (reduces damage taken)",
     modifiers: [{ stat: "armor", amount: 2 }],
   },
 ];
 
 export const UPGRADE_CHOICE_COUNT = 3;
+// Stat-up cards stop offering new stat lines once this many are held.
+export const MAX_STAT_LINES = 4;
+export const MAX_STAT_LEVEL = 5;
+// Heal given by the fallback card, as a fraction of max health.
+const RECOVER_FRACTION = 0.3;
 
 // One card on the upgrade screen: what it says, and what picking it does.
 export interface UpgradeChoice {
@@ -110,11 +105,38 @@ function shuffled<T>(items: readonly T[]): T[] {
   return pool;
 }
 
-// Distinct random stat upgrades, offered at the stat-up milestones inside a level.
-export function chooseStatOptions(count: number = UPGRADE_CHOICE_COUNT): UpgradeChoice[] {
-  return shuffled(UPGRADE_DEFINITIONS)
-    .slice(0, count)
-    .map((upgrade) => ({ name: upgrade.name, description: upgrade.description, apply: (player) => applyUpgrade(player, upgrade) }));
+// Offered when every stat line and item is maxed, so the upgrade screen is never empty.
+function recoverChoice(): UpgradeChoice {
+  return {
+    name: "Recover",
+    description: `Heal ${Math.round(RECOVER_FRACTION * 100)}% of max health`,
+    apply: (player) => healPlayer(player, player.stats.maxHealth * RECOVER_FRACTION),
+  };
+}
+
+// Takes or levels up a stat line.
+function applyStatLine(player: Player, upgrade: UpgradeDefinition): void {
+  applyUpgrade(player, upgrade);
+  player.statLines.set(upgrade.id, (player.statLines.get(upgrade.id) ?? 0) + 1);
+}
+
+// Stat-up cards, offered at the milestones inside a level: a level for a held stat line below
+// MAX_STAT_LEVEL, or a new line while fewer than MAX_STAT_LINES are held.
+export function chooseStatOptions(player: Player, count: number = UPGRADE_CHOICE_COUNT): UpgradeChoice[] {
+  const canTakeNew = player.statLines.size < MAX_STAT_LINES;
+  const pool: UpgradeChoice[] = [];
+  for (const upgrade of UPGRADE_DEFINITIONS) {
+    const level = player.statLines.get(upgrade.id) ?? 0;
+    if (level >= MAX_STAT_LEVEL || (level === 0 && !canTakeNew)) {
+      continue;
+    }
+    pool.push({
+      name: level === 0 ? `New: ${upgrade.name}` : `${upgrade.name} Lv${level + 1}`,
+      description: upgrade.description,
+      apply: (target) => applyStatLine(target, upgrade),
+    });
+  }
+  return pool.length > 0 ? shuffled(pool).slice(0, count) : [recoverChoice()];
 }
 
 // "explosionRadius" -> "explosion radius", for describing params on cards.
@@ -131,10 +153,12 @@ function describeLevelUp(item: AnyItemDefinition): string {
 }
 
 // Item upgrades offered on level-up: a level for an item the player owns (below its max),
-// or an item they don't own yet. Falls back to stat upgrades when nothing is left to offer.
+// or an item they don't own yet (passive ones only while under MAX_PASSIVE_ITEMS). Falls
+// back to stat upgrades when nothing is left to offer.
 export function chooseItemOptions(player: Player, count: number = UPGRADE_CHOICE_COUNT): UpgradeChoice[] {
   const pool: UpgradeChoice[] = [];
   const ownedIds = new Set<string>();
+  const passiveSlotsFull = player.passiveItems.length >= MAX_PASSIVE_ITEMS;
 
   for (const equipped of player.allItems) {
     ownedIds.add(equipped.item.id);
@@ -149,7 +173,7 @@ export function chooseItemOptions(player: Player, count: number = UPGRADE_CHOICE
 
   for (const itemId of Object.keys(ITEM_DEFINITIONS) as ItemId[]) {
     const item = ITEM_DEFINITIONS[itemId];
-    if (ownedIds.has(itemId)) {
+    if (ownedIds.has(itemId) || (item.kind === "passive" && passiveSlotsFull)) {
       continue;
     }
     // Only one active item can be equipped, so a new one replaces the current one.
@@ -163,7 +187,7 @@ export function chooseItemOptions(player: Player, count: number = UPGRADE_CHOICE
     });
   }
 
-  return pool.length > 0 ? shuffled(pool).slice(0, count) : chooseStatOptions(count);
+  return pool.length > 0 ? shuffled(pool).slice(0, count) : chooseStatOptions(player, count);
 }
 
 export function applyUpgrade(player: Player, upgrade: UpgradeDefinition): void {

@@ -11,7 +11,8 @@ export interface PlayerStats {
   healthRegenRate: number;
   critChance: number;
   critDamageMultiplier: number;
-  pickupRange: number;
+  // Distance at which XP orbs start flying to the player, in world units.
+  magnetRange: number;
   xpMultiplier: number;
   dodgeChance: number;
   armor: number;
@@ -30,8 +31,6 @@ export interface PlayerProgression {
 
 export const BASE_PLAYER_RADIUS = 12;
 export const BASE_PLAYER_MAX_HEALTH = 100;
-// Magnet and collect distances scale by pickupRange / BASE_PICKUP_RANGE.
-export const BASE_PICKUP_RANGE = 50;
 
 // Armor can't reduce a hit below this much damage.
 export const MIN_DAMAGE_PER_HIT = 1;
@@ -47,7 +46,7 @@ export const BASE_PLAYER_STATS: Readonly<PlayerStats> = {
   healthRegenRate: 0,
   critChance: 0,
   critDamageMultiplier: 1.5,
-  pickupRange: BASE_PICKUP_RANGE,
+  magnetRange: 60,
   xpMultiplier: 1,
   dodgeChance: 0,
   armor: 0
@@ -62,6 +61,8 @@ export class Player {
   readonly passiveItems: EquippedItem[] = [];
   // At most one active item; null when none is equipped.
   activeItem: EquippedActiveItem | null = null;
+  // Stat lines taken from stat-up cards: upgrade id -> level, in the order they were taken.
+  readonly statLines = new Map<string, number>();
 
   constructor(initialXpToNext: number, itemIds: readonly ItemId[] = DEFAULT_EQUIPPED_ITEM_IDS) {
     this.progression = { level: 1, xp: 0, xpToNext: initialXpToNext, statUpsClaimed: 0 };

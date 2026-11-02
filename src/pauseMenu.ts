@@ -1,6 +1,7 @@
 import { BASE_PLAYER_STATS, MAX_DODGE_CHANCE, type Player, type PlayerStats } from "./player.js";
 import { getItemParams, getMaxLevel, ITEM_DEFINITIONS, type EquippedItem, type ItemId } from "./items.js";
 import type { AnyItemDefinition, ParamScaling } from "./itemTypes.js";
+import { MAX_STAT_LEVEL, MAX_STAT_LINES, UPGRADE_DEFINITIONS } from "./upgrades.js";
 
 // Master switch for dev tools. When false, the dev-mode hotkey does nothing.
 export const DEV_TOOLS_ENABLED = true;
@@ -29,7 +30,7 @@ const STAT_DISPLAY: Record<StatKey, StatDisplay> = {
   attackSizeMultiplier: { label: "Attack Size", format: "multiplier", step: 0.05 },
   critChance: { label: "Crit Chance", format: "chance", step: 0.01 },
   critDamageMultiplier: { label: "Crit Damage", format: "multiplier", step: 0.05 },
-  pickupRange: { label: "Pickup Range", format: "flat", step: 5 },
+  magnetRange: { label: "Magnet Range", format: "flat", step: 10 },
   xpMultiplier: { label: "XP Gain", format: "multiplier", step: 0.05 },
 };
 
@@ -195,6 +196,12 @@ export class PauseMenu {
     if (!this.devMode) {
       table.append(row(["Level", String(player.progression.level)]));
       table.append(row(["Health", `${Math.ceil(player.health)} / ${round(player.stats.maxHealth, 2)}`]));
+      table.append(row(["Stat lines", `${player.statLines.size} / ${MAX_STAT_LINES}`], true));
+      for (const [id, level] of player.statLines) {
+        const upgrade = UPGRADE_DEFINITIONS.find((u) => u.id === id);
+        table.append(row([upgrade?.name ?? id, `Lv ${level} / ${MAX_STAT_LEVEL}`]));
+      }
+      table.append(row(["Stats", ""], true));
       for (const key of STAT_KEYS) {
         table.append(row([STAT_DISPLAY[key].label, formatStat(key, player.stats[key])]));
       }
@@ -228,6 +235,7 @@ export class PauseMenu {
     actions.append(
       button("Reset stats to base", () => {
         Object.assign(player.stats, BASE_PLAYER_STATS);
+        player.statLines.clear();
         player.health = Math.min(player.health, player.stats.maxHealth);
         this.render();
       }),

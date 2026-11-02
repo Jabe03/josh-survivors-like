@@ -104,7 +104,7 @@ function grantUpgrade(choice: UpgradeChoice): void {
 
 // Rolls the cards for the reward at the front of the queue.
 function offerNextReward(): void {
-  upgradeOptions = pendingRewards[0] === "item" ? chooseItemOptions(world.player) : chooseStatOptions();
+  upgradeOptions = pendingRewards[0] === "item" ? chooseItemOptions(world.player) : chooseStatOptions(world.player);
 }
 
 function resize(canvas: HTMLCanvasElement): void {
