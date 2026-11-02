@@ -154,6 +154,27 @@ function itemLevelChanges(player: Player, equipped: EquippedItem): UpgradeChange
     .map((name) => ({ label: paramLabel(name), before: round(before[name], 2), after: round(after[name], 2) }));
 }
 
+// Sets a stat line to any level (for dev tools), adding or removing its modifiers for the
+// difference. Level 0 removes the line. Ignores MAX_STAT_LINES, and unlike a card pick,
+// raising max health this way does not heal.
+export function setStatLineLevel(player: Player, id: string, level: number): void {
+  const upgrade = UPGRADE_DEFINITIONS.find((u) => u.id === id);
+  if (!upgrade) {
+    return;
+  }
+  const current = player.statLines.get(id) ?? 0;
+  const target = Math.min(MAX_STAT_LEVEL, Math.max(0, Math.floor(level)));
+  for (const modifier of upgrade.modifiers) {
+    player.stats[modifier.stat] += modifier.amount * (target - current);
+  }
+  if (target === 0) {
+    player.statLines.delete(id);
+  } else {
+    player.statLines.set(id, target);
+  }
+  player.health = Math.min(player.health, player.stats.maxHealth);
+}
+
 // Takes or levels up a stat line.
 function applyStatLine(player: Player, upgrade: UpgradeDefinition): void {
   applyUpgrade(player, upgrade);

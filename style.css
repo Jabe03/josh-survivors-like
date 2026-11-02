@@ -27,3 +27,4 @@ canvas{display:block;width:100vw;height:100vh}
 .pause-item-desc{color:#8f8299;font-size:.85em;margin-top:.2em}
 .pause-params{margin:0;padding:0;list-style:none}
 .pause-params li{white-space:nowrap}
+.pause-subheading{margin:1.2em 0 .4em;font-size:1em;font-weight:normal;color:#8f8299}

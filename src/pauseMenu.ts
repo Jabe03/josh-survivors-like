@@ -1,8 +1,8 @@
 import { BASE_PLAYER_STATS, type Player } from "./player.js";
 import { getItemParams, getMaxLevel, ITEM_DEFINITIONS, type EquippedItem, type ItemId } from "./items.js";
 import type { AnyItemDefinition, ParamScaling } from "./itemTypes.js";
-import { formatStat, paramLabel, round, STAT_DISPLAY, STAT_KEYS } from "./format.js";
-import { MAX_STAT_LEVEL, MAX_STAT_LINES, UPGRADE_DEFINITIONS } from "./upgrades.js";
+import { formatStat, formatStatDelta, paramLabel, round, STAT_DISPLAY, STAT_KEYS } from "./format.js";
+import { MAX_STAT_LEVEL, MAX_STAT_LINES, setStatLineLevel, UPGRADE_DEFINITIONS, type UpgradeDefinition } from "./upgrades.js";
 
 // Master switch for dev tools. When false, the dev-mode hotkey does nothing.
 export const DEV_TOOLS_ENABLED = true;
@@ -57,7 +57,22 @@ function row(cells: (string | HTMLElement)[], header = false): HTMLTableRowEleme
 const PAUSE_TABS = [
   { id: "stats", label: "Stats" },
   { id: "items", label: "Items" },
+  { id: "statLines", label: "Stat Lines" },
 ] as const;
+
+// "■■□□□" for level 2 of 5.
+function levelPips(level: number, max: number): string {
+  return "■".repeat(Math.min(level, max)) + "□".repeat(Math.max(0, max - level));
+}
+
+// What a stat line adds at `level`, one line per stat, e.g. "Damage +30%".
+function statLineTotals(upgrade: UpgradeDefinition, level: number): HTMLUListElement {
+  const list = el("ul", "pause-params");
+  for (const { stat, amount } of upgrade.modifiers) {
+    list.append(el("li", "", `${STAT_DISPLAY[stat].label} ${formatStatDelta(stat, amount * level)}`));
+  }
+  return list;
+}
 
 type PauseTab = (typeof PAUSE_TABS)[number]["id"];
 
@@ -134,6 +149,8 @@ export class PauseMenu {
     }
     if (this.tab === "items") {
       this.renderItems(this.player);
+    } else if (this.tab === "statLines") {
+      this.renderStatLines(this.player);
     } else {
       this.renderStats(this.player);
     }
@@ -145,12 +162,6 @@ export class PauseMenu {
     if (!this.devMode) {
       table.append(row(["Level", String(player.progression.level)]));
       table.append(row(["Health", `${Math.ceil(player.health)} / ${round(player.stats.maxHealth, 2)}`]));
-      table.append(row(["Stat lines", `${player.statLines.size} / ${MAX_STAT_LINES}`], true));
-      for (const [id, level] of player.statLines) {
-        const upgrade = UPGRADE_DEFINITIONS.find((u) => u.id === id);
-        table.append(row([upgrade?.name ?? id, `Lv ${level} / ${MAX_STAT_LEVEL}`]));
-      }
-      table.append(row(["Stats", ""], true));
       for (const key of STAT_KEYS) {
         table.append(row([STAT_DISPLAY[key].label, formatStat(key, player.stats[key])]));
       }
@@ -194,6 +205,91 @@ export class PauseMenu {
       }),
     );
     this.body.append(actions);
+  }
+
+  // Held stat lines with what they add so far, then the lines not taken. Dev mode adds level
+  // controls, removal, and adding any line regardless of the slot cap.
+  private renderStatLines(player: Player): void {
+    const slotsLeft = MAX_STAT_LINES - player.statLines.size;
+    this.body.append(
+      el(
+        "p",
+        "pause-note",
+        `Slots used ${player.statLines.size} / ${MAX_STAT_LINES}. Stat lines are picked at each Stat Up (the ticks on the XP bar) and level up to ${MAX_STAT_LEVEL}.`,
+      ),
+    );
+
+    if (player.statLines.size === 0) {
+      this.body.append(el("p", "pause-note", "No stat lines yet."));
+    } else {
+      const held = el("table", "pause-table");
+      const header = ["#", "Stat line", "Level", "Adds in total"];
+      held.append(row(this.devMode ? [...header, ""] : header, true));
+      [...player.statLines].forEach(([id, level], index) => {
+        const upgrade = UPGRADE_DEFINITIONS.find((u) => u.id === id);
+        if (!upgrade) {
+          return;
+        }
+        const nameCell = el("div");
+        nameCell.append(el("div", "pause-item-name", upgrade.name), el("div", "pause-item-desc", `Per level: ${upgrade.description}`));
+
+        const levelCell = el("span", "pause-level");
+        if (this.devMode) {
+          const change = (delta: number) => {
+            setStatLineLevel(player, id, level + delta);
+            this.render();
+          };
+          levelCell.append(button("−", () => change(-1)), ` ${level}/${MAX_STAT_LEVEL} `, button("+", () => change(1)));
+        } else {
+          levelCell.textContent = `${levelPips(level, MAX_STAT_LEVEL)} ${level}/${MAX_STAT_LEVEL}`;
+        }
+
+        const cells: (string | HTMLElement)[] = [String(index + 1), nameCell, levelCell, statLineTotals(upgrade, level)];
+        if (this.devMode) {
+          cells.push(
+            button("Remove", () => {
+              setStatLineLevel(player, id, 0);
+              this.render();
+            }),
+          );
+        }
+        held.append(row(cells));
+      });
+      this.body.append(held);
+    }
+
+    const notTaken = UPGRADE_DEFINITIONS.filter((u) => !player.statLines.has(u.id));
+    if (notTaken.length === 0) {
+      return;
+    }
+    this.body.append(el("h2", "pause-subheading", slotsLeft > 0 ? "Not taken yet" : "Not taken (slots full)"));
+    const others = el("table", "pause-table");
+    for (const upgrade of notTaken) {
+      const cells: (string | HTMLElement)[] = [upgrade.name, el("span", "pause-item-desc", `Per level: ${upgrade.description}`)];
+      if (this.devMode) {
+        cells.push(
+          button("Add", () => {
+            setStatLineLevel(player, upgrade.id, 1);
+            this.render();
+          }),
+        );
+      }
+      others.append(row(cells));
+    }
+    this.body.append(others);
+
+    if (this.devMode && player.statLines.size > 0) {
+      const actions = el("div", "pause-actions");
+      actions.append(
+        button("Remove all stat lines", () => {
+          for (const id of [...player.statLines.keys()]) {
+            setStatLineLevel(player, id, 0);
+          }
+          this.render();
+        }),
+      );
+      this.body.append(actions);
+    }
   }
 
   private renderItems(player: Player): void {

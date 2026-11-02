@@ -57,6 +57,21 @@ export function formatStat(key: StatKey, value: number): string {
   return text;
 }
 
+// A change to a stat, signed: "+15%", "+20", "+0.5/s".
+export function formatStatDelta(key: StatKey, amount: number): string {
+  const sign = amount >= 0 ? "+" : "−";
+  const size = Math.abs(amount);
+  switch (STAT_DISPLAY[key].format) {
+    case "flat":
+      return `${sign}${round(size, 2)}`;
+    case "multiplier":
+    case "chance":
+      return `${sign}${round(size * 100, 1)}%`;
+    case "perSecond":
+      return `${sign}${round(size, 2)}/s`;
+  }
+}
+
 // Item param names for display: "explosionRadius" -> "Explosion radius".
 export function paramLabel(name: string): string {
   const spaced = name.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
