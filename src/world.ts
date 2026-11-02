@@ -3,7 +3,7 @@ import { SpatialHash } from "./spatialHash.js";
 import { BASE_PICKUP_RANGE, damagePlayer, healPlayer, Player } from "./player.js";
 import { DEFAULT_LEVEL_CURVE, grantExperience, xpToNextLevel } from "./leveling.js";
 import { DEFAULT_SPAWN_STAGES, EnemySpawnEngine } from "./spawnEngine.js";
-import { updateEnemyBehavior, type ActiveEnemy } from "./enemies.js";
+import { applyKnockback, moveEnemy, updateEnemyBehavior, type ActiveEnemy } from "./enemies.js";
 import { createProjectile, type Projectile, type ProjectileSpec } from "./projectiles.js";
 import { VfxSystem, type HitFlashStyle, type VfxSpec } from "./vfx.js";
 
@@ -22,7 +22,8 @@ export interface SimContext {
   findNearestEnemy(pos: Vec2, range: number): ActiveEnemy | null;
   // Every enemy whose center is within radius of pos.
   forEachEnemyInRadius(pos: Vec2, radius: number, visit: (enemy: ActiveEnemy) => void): void;
-  // Pushes the enemy `distance` units directly away from `from`, over KNOCKBACK_DURATION.
+  // Pushes the enemy `distance` units directly away from `from`, scaled by its template's
+  // knockbackMultiplier. Adds to the enemy's own movement rather than replacing it.
   knockbackEnemy(enemy: ActiveEnemy, from: Vec2, distance: number): void;
   spawnProjectile(spec: ProjectileSpec): void;
   spawnVfx(spec: VfxSpec): void;
@@ -38,8 +39,6 @@ const CRIT_FLASH_COLOR = "#ffffff";
 const CRIT_FLASH_SCALE = 1.6;
 
 const MAGNET_RANGE = 180;
-// Knockback slides the enemy over this many seconds instead of teleporting it.
-const KNOCKBACK_DURATION = 0.15;
 const QUERY_CELL_SIZE = 96;
 
 // One run's simulation: player, enemies, items, projectiles, XP and visual effects.
@@ -154,15 +153,9 @@ export class World implements SimContext {
   }
 
   knockbackEnemy(enemy: ActiveEnemy, from: Vec2, distance: number): void {
-    const dx = enemy.pos.x - from.x;
-    const dy = enemy.pos.y - from.y;
-    const dist = Math.hypot(dx, dy);
-    // An enemy exactly on top of `from` has no direction; push it along +x.
-    const nx = dist > 0 ? dx / dist : 1;
-    const ny = dist > 0 ? dy / dist : 0;
-    const speed = distance / KNOCKBACK_DURATION;
-    enemy.knockback = { velocity: { x: nx * speed, y: ny * speed }, timeLeft: KNOCKBACK_DURATION };
+    applyKnockback(enemy, from, distance);
   }
+
 
   spawnProjectile(spec: ProjectileSpec): void {
     this.projectiles.push(createProjectile(spec));
@@ -182,18 +175,8 @@ export class World implements SimContext {
   private updateEnemies(stepMoveX: number, stepMoveY: number): void {
     for (const enemy of this.enemies) {
       enemy.hitCooldown = Math.max(0, enemy.hitCooldown - this.dt);
-      if (enemy.knockback) {
-        // Clamp the last step so the total distance is exact.
-        const t = Math.min(this.dt, enemy.knockback.timeLeft);
-        enemy.pos.x += enemy.knockback.velocity.x * t;
-        enemy.pos.y += enemy.knockback.velocity.y * t;
-        enemy.knockback.timeLeft -= t;
-        if (enemy.knockback.timeLeft <= 0) {
-          enemy.knockback = null;
-        }
-      } else {
-        updateEnemyBehavior(enemy, this);
-      }
+      updateEnemyBehavior(enemy, this);
+      moveEnemy(enemy, this.dt);
 
       const overlap = this.resolvePlayerEnemyOverlap(enemy, stepMoveX, stepMoveY);
       if (overlap && enemy.hitCooldown === 0) {

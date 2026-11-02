@@ -4,6 +4,7 @@ import type { SimContext } from "./world.js";
 export type EnemyKind = "normal" | "miniboss" | "boss";
 
 // ---- Behaviors: how an enemy moves and attacks. Contact damage is shared by all enemies. ----
+// Behaviors steer by setting enemy.moveVelocity; moveEnemy then combines it with knockback.
 
 // Params for each behavior. Adding a behavior means adding it here and to BEHAVIOR_REGISTRY.
 interface BehaviorParamsMap {
@@ -29,8 +30,8 @@ const BEHAVIOR_REGISTRY: { [K in EnemyBehaviorId]: BehaviorHandler<BehaviorParam
       const dx = context.player.pos.x - enemy.pos.x;
       const dy = context.player.pos.y - enemy.pos.y;
       const dist = Math.hypot(dx, dy) || 1;
-      enemy.pos.x += (dx / dist) * enemy.template.speed * context.dt;
-      enemy.pos.y += (dy / dist) * enemy.template.speed * context.dt;
+      enemy.moveVelocity.x = (dx / dist) * enemy.template.speed;
+      enemy.moveVelocity.y = (dy / dist) * enemy.template.speed;
     },
   },
 };
@@ -79,9 +80,14 @@ export interface EnemyTemplate {
   damage: number;
   hitInterval: number;
   xpReward: number;
+  // Scales knockback taken: 1 = full push, 0.5 = half distance, 0 = immune.
+  knockbackMultiplier: number;
   behavior: EnemyBehavior;
   visual: EnemyVisual;
 }
+
+// A push lasts this long at constant speed, so its distance is exact.
+const KNOCKBACK_DURATION = 0.15;
 
 const CHASE: EnemyBehavior = { id: "chase", params: {} };
 const NORMAL_VISUAL: EnemyVisual = { shape: "circle", color: "#d66565", healthBarColor: "#ff7a7a" };
@@ -90,13 +96,13 @@ const BOSS_VISUAL: EnemyVisual = { shape: "circle", color: "#9a2a2a", healthBarC
 
 // Shared enemy definitions. Stages reference these by id instead of copying stats.
 export const ENEMY_LIBRARY = {
-  normal_w1: { kind: "normal", speed: 95, radius: 12, health: 18, xpReward: 7, damage: 6, hitInterval: 0.9, behavior: CHASE, visual: NORMAL_VISUAL },
-  normal_w2: { kind: "normal", speed: 120, radius: 13, health: 26, xpReward: 10, damage: 8, hitInterval: 0.8, behavior: CHASE, visual: NORMAL_VISUAL },
-  normal_w3: { kind: "normal", speed: 145, radius: 14, health: 34, xpReward: 13, damage: 10, hitInterval: 0.7, behavior: CHASE, visual: NORMAL_VISUAL },
-  normal_w4: { kind: "normal", speed: 185, radius: 15, health: 48, xpReward: 18, damage: 13, hitInterval: 0.58, behavior: CHASE, visual: NORMAL_VISUAL },
-  miniboss_w3: { kind: "miniboss", speed: 105, radius: 24, health: 220, xpReward: 70, damage: 18, hitInterval: 0.9, behavior: CHASE, visual: MINIBOSS_VISUAL },
-  miniboss_w4: { kind: "miniboss", speed: 120, radius: 26, health: 340, xpReward: 110, damage: 22, hitInterval: 0.82, behavior: CHASE, visual: MINIBOSS_VISUAL },
-  boss_1: { kind: "boss", speed: 95, radius: 36, health: 700, xpReward: 240, damage: 28, hitInterval: 1, behavior: CHASE, visual: BOSS_VISUAL },
+  normal_w1: { kind: "normal", speed: 95, radius: 12, health: 18, xpReward: 7, damage: 6, hitInterval: 0.9, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
+  normal_w2: { kind: "normal", speed: 120, radius: 13, health: 26, xpReward: 10, damage: 8, hitInterval: 0.8, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
+  normal_w3: { kind: "normal", speed: 145, radius: 14, health: 34, xpReward: 13, damage: 10, hitInterval: 0.7, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
+  normal_w4: { kind: "normal", speed: 185, radius: 15, health: 48, xpReward: 18, damage: 13, hitInterval: 0.58, knockbackMultiplier: 1, behavior: CHASE, visual: NORMAL_VISUAL },
+  miniboss_w3: { kind: "miniboss", speed: 105, radius: 24, health: 220, xpReward: 70, damage: 18, hitInterval: 0.9, knockbackMultiplier: 1, behavior: CHASE, visual: MINIBOSS_VISUAL },
+  miniboss_w4: { kind: "miniboss", speed: 120, radius: 26, health: 340, xpReward: 110, damage: 22, hitInterval: 0.82, knockbackMultiplier: 1, behavior: CHASE, visual: MINIBOSS_VISUAL },
+  boss_1: { kind: "boss", speed: 95, radius: 36, health: 700, xpReward: 240, damage: 28, hitInterval: 1, knockbackMultiplier: 1, behavior: CHASE, visual: BOSS_VISUAL },
 } satisfies Record<string, EnemyTemplate>;
 
 export type EnemyId = keyof typeof ENEMY_LIBRARY;
@@ -111,8 +117,12 @@ export interface ActiveEnemy {
   maxHealth: number;
   hitCooldown: number;
   behaviorState: unknown;
-  // While set, the enemy slides with this velocity instead of running its behavior.
-  knockback: { velocity: Vec2; timeLeft: number } | null;
+  // Where the enemy wants to go, set by its behavior each step.
+  moveVelocity: Vec2;
+  // Current push, added to moveVelocity (scaled by knockbackMultiplier) until
+  // knockbackTimeLeft runs out. Zero when not being pushed.
+  knockbackVelocity: Vec2;
+  knockbackTimeLeft: number;
 }
 
 export function createEnemy(template: EnemyTemplate, pos: Vec2, healthMultiplier = 1): ActiveEnemy {
@@ -124,8 +134,46 @@ export function createEnemy(template: EnemyTemplate, pos: Vec2, healthMultiplier
     maxHealth: health,
     hitCooldown: 0,
     behaviorState: getBehaviorHandler(template.behavior.id).createState(),
-    knockback: null,
+    moveVelocity: { x: 0, y: 0 },
+    knockbackVelocity: { x: 0, y: 0 },
+    knockbackTimeLeft: 0,
   };
+}
+
+// Pushes the enemy `distance` units away from `from` (before knockbackMultiplier), over
+// KNOCKBACK_DURATION. A new push replaces one already in progress.
+export function applyKnockback(enemy: ActiveEnemy, from: Vec2, distance: number): void {
+  const dx = enemy.pos.x - from.x;
+  const dy = enemy.pos.y - from.y;
+  const dist = Math.hypot(dx, dy);
+  // An enemy exactly on top of `from` has no direction; push it along +x.
+  const nx = dist > 0 ? dx / dist : 1;
+  const ny = dist > 0 ? dy / dist : 0;
+  const speed = distance / KNOCKBACK_DURATION;
+  enemy.knockbackVelocity.x = nx * speed;
+  enemy.knockbackVelocity.y = ny * speed;
+  enemy.knockbackTimeLeft = KNOCKBACK_DURATION;
+}
+
+// Moves the enemy by moveVelocity + knockbackMultiplier * knockbackVelocity. With no push in
+// progress the knockback term is zero, so this is just the behavior's movement.
+export function moveEnemy(enemy: ActiveEnemy, dt: number): void {
+  let kbDx = 0;
+  let kbDy = 0;
+  if (enemy.knockbackTimeLeft > 0) {
+    // Clamp the last step so the total distance is exact.
+    const t = Math.min(dt, enemy.knockbackTimeLeft);
+    const scale = enemy.template.knockbackMultiplier * t;
+    kbDx = enemy.knockbackVelocity.x * scale;
+    kbDy = enemy.knockbackVelocity.y * scale;
+    enemy.knockbackTimeLeft -= t;
+    if (enemy.knockbackTimeLeft <= 0) {
+      enemy.knockbackVelocity.x = 0;
+      enemy.knockbackVelocity.y = 0;
+    }
+  }
+  enemy.pos.x += enemy.moveVelocity.x * dt + kbDx;
+  enemy.pos.y += enemy.moveVelocity.y * dt + kbDy;
 }
 
 export function updateEnemyBehavior(enemy: ActiveEnemy, context: SimContext): void {
