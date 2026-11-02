@@ -431,9 +431,9 @@ const BOSS_VISUAL: EnemyVisual = { shape: "circle", color: "#9a2a2a", healthBarC
 // they are normals, so they count toward maxNormals and hold back regular spawns.
 const SPLITLING: EnemyTemplate = {
   kind: "normal",
-  speed: 130,
+  speed: 165,
   radius: 8,
-  health: 6,
+  health: 10,
   xpReward: 1,
   damage: 4,
   hitInterval: 0.7,
@@ -451,7 +451,7 @@ export const ENEMY_LIBRARY = {
   shooter: { kind: "normal", speed: 45, radius: 12, health: 16, xpReward: 6, damage: 7, hitInterval: 0.9, knockbackMultiplier: 1, special: true, behavior: SHOOTER, visual: SHOOTER_VISUAL },
   splitter: {
     kind: "normal", speed: 50, radius: 15, health: 30, xpReward: 6, damage: 8, hitInterval: 0.9, knockbackMultiplier: 1, special: true,
-    behavior: CHASE, visual: SPLITTER_VISUAL, onDeath: { spawn: SPLITLING, count: 3, burstDistance: 110 },
+    behavior: CHASE, visual: SPLITTER_VISUAL, onDeath: { spawn: SPLITLING, count: 6, burstDistance: 130 },
   },
   splitling: SPLITLING,
   // `damage` is the explosion; it stops well outside contact range.
