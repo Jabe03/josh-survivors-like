@@ -3,6 +3,7 @@ import { ITEM_DEFINITIONS, MAX_ITEM_LEVEL, MAX_PASSIVE_ITEMS, type ItemId } from
 import { STAT_UPS_PER_LEVEL } from "./leveling.js";
 import { formatTime } from "./format.js";
 import type { World } from "./world.js";
+import type { LeaderboardView } from "./leaderboard.js";
 
 // Full-screen overlays for the non-running game states.
 
@@ -65,6 +66,22 @@ export function drawStartScreen(ctx: CanvasRenderingContext2D, canvas: HTMLCanva
   ctx.fillStyle = "#ffd27a";
   ctx.font = "18px monospace";
   drawCentered(ctx, "Press SPACE / ENTER / Click to start", cx, y + 30);
+  ctx.fillStyle = "#b8aec4";
+  ctx.font = "15px monospace";
+  drawCentered(ctx, "L to view the leaderboard", cx, y + 58);
+}
+
+export function drawLeaderboardScreen(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, view: LeaderboardView): void {
+  dim(ctx, canvas, "rgba(10, 8, 15, 0.92)");
+  const cx = canvas.width / 2;
+  const top = canvas.height / 2 - 150;
+  ctx.fillStyle = "#efe6d3";
+  ctx.font = "34px monospace";
+  drawCentered(ctx, "Leaderboard", cx, top - 30);
+  const y = drawLeaderboard(ctx, cx, top, view, false);
+  ctx.fillStyle = "#ffd27a";
+  ctx.font = "16px monospace";
+  drawCentered(ctx, "ESC / L / SPACE to go back", cx, y + 30);
 }
 
 // Time, level and kills, then a bar per item showing its share of all damage dealt.
@@ -286,17 +303,59 @@ export function drawVictoryScreen(ctx: CanvasRenderingContext2D, canvas: HTMLCan
   drawCentered(ctx, "R to start a new run", cx, y + 56);
 }
 
-export function drawDeathScreen(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, world: World): void {
+// Rows of the leaderboard table under the run summary, with the player's new entry highlighted.
+// Returns the y below it.
+export function drawLeaderboard(ctx: CanvasRenderingContext2D, cx: number, top: number, view: LeaderboardView, heading = true): number {
+  let y = top;
+  ctx.font = "13px monospace";
+  ctx.fillStyle = "#8f8299";
+  if (heading) {
+    drawCentered(ctx, "Leaderboard", cx, y);
+    y += 22;
+  }
+  if (view.status !== "ready") {
+    const message = { entering: "Enter a name below to submit your run", loading: "Loading...", offline: "Leaderboard offline" }[view.status];
+    drawCentered(ctx, message, cx, y);
+    return y + 20;
+  }
+  if (view.entries.length === 0) {
+    drawCentered(ctx, "No runs yet", cx, y);
+    return y + 20;
+  }
+  const columns = [-235, -195, 15, 95, 175];
+  ctx.textAlign = "left";
+  for (const [i, entry] of view.entries.entries()) {
+    const mine = view.rank === i + 1;
+    ctx.fillStyle = mine ? "#ffd27a" : "#d8d0c0";
+    const cells = [`${i + 1}.`, entry.name, formatTime(entry.time), `Lv ${entry.level}`, `${entry.kills} kills`];
+    cells.forEach((text, c) => ctx.fillText(text, cx + columns[c], y));
+    y += 18;
+  }
+  ctx.textAlign = "start";
+  if (view.rank !== null && view.rank > view.entries.length) {
+    ctx.fillStyle = "#ffd27a";
+    drawCentered(ctx, `Your run placed #${view.rank}`, cx, y + 4);
+    y += 22;
+  }
+  return y;
+}
+
+export function drawDeathScreen(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, world: World, leaderboard: LeaderboardView): void {
   dim(ctx, canvas, "rgba(20, 6, 8, 0.92)");
   const cx = canvas.width / 2;
-  const top = summaryTop(canvas, world);
+  // Higher than the victory screen, to make room for the leaderboard.
+  const top = Math.max(90, summaryTop(canvas, world) - 140);
 
   ctx.fillStyle = "#ffd4d4";
   ctx.font = "38px monospace";
-  drawCentered(ctx, "You Died", cx, top - 40);
+  // Still alive means the run was ended from the pause menu.
+  drawCentered(ctx, world.player.health > 0 ? "Run Ended" : "You Died", cx, top - 40);
 
-  const y = drawRunSummary(ctx, canvas, world, top);
-  ctx.fillStyle = "#ffd27a";
-  ctx.font = "16px monospace";
-  drawCentered(ctx, "Press SPACE / ENTER / Click to restart", cx, y + 30);
+  let y = drawRunSummary(ctx, canvas, world, top);
+  y = drawLeaderboard(ctx, cx, y + 16, leaderboard);
+  if (leaderboard.status !== "entering") {
+    ctx.fillStyle = "#ffd27a";
+    ctx.font = "16px monospace";
+    drawCentered(ctx, "Press SPACE / ENTER / Click to restart", cx, y + 24);
+  }
 }

@@ -7,8 +7,10 @@ import type { UpgradeReward } from "./leveling.js";
 import { World } from "./world.js";
 import { drawWorld } from "./render.js";
 import { drawHud, ToastQueue } from "./hud.js";
+import { fetchLeaderboard, NameForm, submitScore, type LeaderboardResult, type LeaderboardView } from "./leaderboard.js";
 import {
   drawDeathScreen,
+  drawLeaderboardScreen,
   drawPausedBackdrop,
   drawStartScreen,
   drawUpgradeChoice,
@@ -16,7 +18,7 @@ import {
   type Rect,
 } from "./screens.js";
 
-type GameState = "start" | "running" | "paused" | "levelup" | "victory" | "dead";
+type GameState = "start" | "leaderboard" | "running" | "paused" | "levelup" | "victory" | "dead";
 
 // Surviving this long wins the run; the player can then keep going in endless mode.
 const VICTORY_TIME = 300;
@@ -26,6 +28,7 @@ const ACTIVE_ITEM_KEY = "Space";
 let gameState: GameState = "start";
 let confirmPressed = false;
 let restartPressed = false;
+let leaderboardPressed = false;
 let pausePressed = false;
 let activeItemPressed = false;
 let choiceKeyPressed: number | null = null;
@@ -38,11 +41,14 @@ let victoryReached = false;
 let pendingRewards: UpgradeReward[] = [];
 let upgradeOptions: UpgradeChoice[] = [];
 let pauseMenu: PauseMenu | null = null;
+let nameForm: NameForm | null = null;
+let leaderboard: LeaderboardView = { status: "loading" };
 
 // Where the upgrade cards were last drawn, for click hit-testing.
 let upgradeCardRects: Rect[] = [];
 
 function resetRun(): void {
+  nameForm?.close();
   world = new World();
   toasts.clear();
   victoryReached = false;
@@ -79,6 +85,7 @@ function setGameState(next: GameState): void {
   gameState = next;
   confirmPressed = false;
   restartPressed = false;
+  leaderboardPressed = false;
   pausePressed = false;
   activeItemPressed = false;
   choiceKeyPressed = null;
@@ -143,6 +150,9 @@ function drawOverlay(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): 
     case "start":
       drawStartScreen(ctx, canvas, VICTORY_TIME);
       break;
+    case "leaderboard":
+      drawLeaderboardScreen(ctx, canvas, leaderboard);
+      break;
     case "paused":
       drawPausedBackdrop(ctx, canvas);
       break;
@@ -153,7 +163,7 @@ function drawOverlay(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): 
       drawVictoryScreen(ctx, canvas, world);
       break;
     case "dead":
-      drawDeathScreen(ctx, canvas, world);
+      drawDeathScreen(ctx, canvas, world, leaderboard);
       break;
   }
 }
@@ -177,6 +187,45 @@ function resumeGame(): void {
   setGameState("running");
 }
 
+// Asks for a name, then submits the run (or just loads the board if skipped). Results for a
+// run that has since been restarted are dropped.
+function endRun(): void {
+  setGameState("dead");
+  leaderboard = { status: "entering" };
+  const run = world;
+  const show = (result: LeaderboardResult | null) => {
+    if (world === run) {
+      leaderboard = result ? { status: "ready", ...result } : { status: "offline" };
+    }
+  };
+  nameForm?.open((name) => {
+    leaderboard = { status: "loading" };
+    if (name === null) {
+      void fetchLeaderboard().then(show);
+      return;
+    }
+    const entry = { name, time: run.spawnEngine.getElapsedTime(), level: run.player.progression.level, kills: run.runStats.kills };
+    void submitScore(entry).then(show);
+  });
+}
+
+// From the start screen: shows the board, loading it fresh each time.
+function openLeaderboard(): void {
+  setGameState("leaderboard");
+  leaderboard = { status: "loading" };
+  void fetchLeaderboard().then((result) => {
+    if (gameState === "leaderboard") {
+      leaderboard = result ? { status: "ready", ...result } : { status: "offline" };
+    }
+  });
+}
+
+// Ends the run from the pause menu, the same way dying does (so it can still be submitted).
+function giveUp(): void {
+  pauseMenu?.close();
+  endRun();
+}
+
 function runFrame(dt: number): void {
   if (activeItemPressed) {
     activeItemPressed = false;
@@ -185,7 +234,7 @@ function runFrame(dt: number): void {
   pendingRewards.push(...world.step(dt, readMove()));
   toasts.update(dt);
   if (world.player.health <= 0) {
-    setGameState("dead");
+    endRun();
   } else if (pendingRewards.length > 0) {
     offerNextReward();
     setGameState("levelup");
@@ -197,11 +246,19 @@ function runFrame(dt: number): void {
 
 export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D): void {
   setupInput();
-  pauseMenu = new PauseMenu(() => {
-    if (gameState === "paused") {
-      resumeGame();
-    }
-  });
+  nameForm = new NameForm();
+  pauseMenu = new PauseMenu(
+    () => {
+      if (gameState === "paused") {
+        resumeGame();
+      }
+    },
+    () => {
+      if (gameState === "paused") {
+        giveUp();
+      }
+    },
+  );
   addEventListener("keydown", (e) => {
     // Typing in a pause-menu field only listens for ESC.
     if (isTextEntryTarget(e.target) && e.code !== "Escape") {
@@ -223,6 +280,9 @@ export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext
     if (e.code === "KeyR") {
       restartPressed = true;
     }
+    if (e.code === "KeyL") {
+      leaderboardPressed = true;
+    }
     const choiceMatch = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
     if (choiceMatch) {
       choiceKeyPressed = Number(choiceMatch[1]) - 1;
@@ -242,9 +302,15 @@ export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext
     last = now;
 
     if (gameState === "start") {
-      if (consumeConfirm()) {
+      if (leaderboardPressed) {
+        openLeaderboard();
+      } else if (consumeConfirm()) {
         resetRun();
         setGameState("running");
+      }
+    } else if (gameState === "leaderboard") {
+      if (leaderboardPressed || consumePause() || consumeConfirm()) {
+        setGameState("start");
       }
     } else if (gameState === "running") {
       if (consumePause()) {
@@ -275,7 +341,8 @@ export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext
         setGameState("running");
       }
     } else if (gameState === "dead") {
-      if (consumeConfirm()) {
+      // Wait for the name form, so a click or SPACE meant for it doesn't restart.
+      if (leaderboard.status !== "entering" && consumeConfirm()) {
         resetRun();
         setGameState("running");
       }

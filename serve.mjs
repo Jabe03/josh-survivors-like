@@ -5,6 +5,7 @@ import { readFile, stat } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { handleLeaderboard } from "./leaderboard.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const PORT = Number(process.env.PORT) || 8080;
@@ -29,6 +30,7 @@ const MIME_TYPES = {
 };
 
 const server = createServer(async (req, res) => {
+    if (await handleLeaderboard(req, res)) return;
     const urlPath = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname);
     let filePath = normalize(join(ROOT, urlPath));
 

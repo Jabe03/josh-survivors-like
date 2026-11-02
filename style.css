@@ -22,9 +22,12 @@ canvas{display:block;width:100vw;height:100vh}
 .pause-input{width:7em;font:inherit;color:#efe6d3;background:#0e0914;border:1px solid #6b5a80;padding:.15em .3em}
 .pause-note{margin:0 0 .6em;color:#8f8299}
 .pause-actions{display:flex;gap:.6em;margin-top:1em;flex-wrap:wrap}
-.pause-footer{margin-top:1em;display:flex;justify-content:center}
+.pause-footer{margin-top:1em;display:flex;justify-content:center;gap:.6em}
 .pause-item-name{color:#d7f7c9}
 .pause-item-desc{color:#8f8299;font-size:.85em;margin-top:.2em}
 .pause-params{margin:0;padding:0;list-style:none}
 .pause-params li{white-space:nowrap}
 .pause-subheading{margin:1.2em 0 .4em;font-size:1em;font-weight:normal;color:#8f8299}
+.name-form{position:fixed;left:50%;bottom:6vh;transform:translateX(-50%);display:flex;gap:.6em;font:clamp(14px,1.9vmin,24px) monospace;color:#efe6d3}
+.name-form[hidden]{display:none}
+.name-input{width:12em}

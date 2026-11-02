@@ -38,6 +38,9 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 }
 
+const GIVE_UP_LABEL = "Give up";
+const GIVE_UP_CONFIRM_LABEL = "Click again to end the run";
+
 function button(label: string, onClick: () => void): HTMLButtonElement {
   const node = el("button", "pause-button", label);
   node.addEventListener("click", onClick);
@@ -85,7 +88,13 @@ export class PauseMenu {
   private devMode = false;
   private player: Player | null = null;
 
-  constructor(private readonly onResume: () => void) {
+  // Asks for a second click before giving up, so one stray click can't end a run.
+  private readonly giveUpButton: HTMLButtonElement;
+
+  constructor(
+    private readonly onResume: () => void,
+    private readonly onGiveUp: () => void,
+  ) {
     this.root = el("div", "pause-menu");
     this.root.hidden = true;
 
@@ -106,7 +115,14 @@ export class PauseMenu {
     this.body = el("div", "pause-body");
 
     const footer = el("div", "pause-footer");
-    footer.append(button("Resume (ESC)", () => this.onResume()));
+    this.giveUpButton = button(GIVE_UP_LABEL, () => {
+      if (this.giveUpButton.textContent === GIVE_UP_LABEL) {
+        this.giveUpButton.textContent = GIVE_UP_CONFIRM_LABEL;
+      } else {
+        this.onGiveUp();
+      }
+    });
+    footer.append(button("Resume (ESC)", () => this.onResume()), this.giveUpButton);
 
     panel.append(this.title, this.tabBar, this.body, footer);
     this.root.append(panel);
@@ -116,6 +132,7 @@ export class PauseMenu {
   open(player: Player): void {
     this.player = player;
     this.root.hidden = false;
+    this.giveUpButton.textContent = GIVE_UP_LABEL;
     this.render();
   }
 

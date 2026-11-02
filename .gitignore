@@ -1,3 +1,5 @@
 node_modules/
 out/
 files.zip
+leaderboard.json
+leaderboard.json.tmp
