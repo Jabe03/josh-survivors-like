@@ -13,8 +13,9 @@ export interface SimContext {
   readonly dt: number;
   readonly player: Player;
   readonly enemies: readonly ActiveEnemy[];
-  // Rolls for a crit and shows a hit flash (a bigger white one on crits).
-  damageEnemy(enemy: ActiveEnemy, amount: number, hitFlash?: HitFlashStyle): void;
+  // Rolls for a crit and shows a hit flash (a bigger white one on crits). Returns the health
+  // actually removed, which is less than the hit on overkill.
+  damageEnemy(enemy: ActiveEnemy, amount: number, hitFlash?: HitFlashStyle): number;
   // Applies dodge and armor. Returns false if the hit was dodged.
   hurtPlayer(amount: number): boolean;
   healPlayer(amount: number): void;
@@ -22,6 +23,8 @@ export interface SimContext {
   findNearestEnemy(pos: Vec2, range: number): ActiveEnemy | null;
   // Every enemy whose center is within radius of pos.
   forEachEnemyInRadius(pos: Vec2, radius: number, visit: (enemy: ActiveEnemy) => void): void;
+  // Every enemy whose body overlaps the circle at pos, for hitboxes like projectiles.
+  forEachEnemyTouching(pos: Vec2, radius: number, visit: (enemy: ActiveEnemy) => void): void;
   // Pushes the enemy `distance` units directly away from `from`, scaled by its template's
   // knockbackMultiplier. Adds to the enemy's own movement rather than replacing it.
   knockbackEnemy(enemy: ActiveEnemy, from: Vec2, distance: number): void;
@@ -103,10 +106,11 @@ export class World implements SimContext {
 
   // ---- SimContext ----
 
-  damageEnemy(enemy: ActiveEnemy, amount: number, hitFlash?: HitFlashStyle): void {
+  damageEnemy(enemy: ActiveEnemy, amount: number, hitFlash?: HitFlashStyle): number {
     const isCrit = Math.random() < this.player.stats.critChance;
-    const dealt = isCrit ? amount * this.player.stats.critDamageMultiplier : amount;
-    enemy.health = Math.max(0, enemy.health - dealt);
+    const hit = isCrit ? amount * this.player.stats.critDamageMultiplier : amount;
+    const healthBefore = enemy.health;
+    enemy.health = Math.max(0, enemy.health - hit);
 
     if (hitFlash) {
       this.vfx.spawnHitFlash(
@@ -114,6 +118,7 @@ export class World implements SimContext {
         isCrit ? { ...hitFlash, radius: hitFlash.radius * CRIT_FLASH_SCALE, color: CRIT_FLASH_COLOR } : hitFlash,
       );
     }
+    return healthBefore - enemy.health;
   }
 
   hurtPlayer(amount: number): boolean {
@@ -156,6 +161,19 @@ export class World implements SimContext {
     applyKnockback(enemy, from, distance);
   }
 
+
+  forEachEnemyTouching(pos: Vec2, radius: number, visit: (enemy: ActiveEnemy) => void): void {
+    // Search wide enough to catch the largest enemy, then check exact overlap.
+    this.queryGrid.queryRadius(pos, radius + this.maxEnemyRadius, (index) => {
+      const enemy = this.enemies[index];
+      const reach = radius + enemy.template.radius;
+      const dx = enemy.pos.x - pos.x;
+      const dy = enemy.pos.y - pos.y;
+      if (dx * dx + dy * dy < reach * reach) {
+        visit(enemy);
+      }
+    });
+  }
 
   spawnProjectile(spec: ProjectileSpec): void {
     this.projectiles.push(createProjectile(spec));
@@ -203,17 +221,13 @@ export class World implements SimContext {
       projectile.pos.y += projectile.velocity.y * this.dt;
 
       if (projectile.team === "player") {
-        // Search wide enough to catch the largest enemy, then check exact overlap.
-        this.forEachEnemyInRadius(projectile.pos, projectile.radius + this.maxEnemyRadius, (enemy) => {
+        this.forEachEnemyTouching(projectile.pos, projectile.radius, (enemy) => {
           if (projectile.pierceLeft <= 0 || enemy.health <= 0 || projectile.hitEnemies.has(enemy)) {
             return;
           }
-          const reach = projectile.radius + enemy.template.radius;
-          if (Math.hypot(enemy.pos.x - projectile.pos.x, enemy.pos.y - projectile.pos.y) < reach) {
-            this.damageEnemy(enemy, projectile.damage, projectile.hitFlash);
-            projectile.hitEnemies.add(enemy);
-            projectile.pierceLeft -= 1;
-          }
+          this.damageEnemy(enemy, projectile.damage, projectile.hitFlash);
+          projectile.hitEnemies.add(enemy);
+          projectile.pierceLeft -= 1;
         });
       } else {
         const reach = projectile.radius + this.player.radius;

@@ -3,10 +3,11 @@ import type { AnyActiveItemDefinition, AnyItemDefinition, ItemDrawContext, ItemP
 import { starterBlaster } from "./items/starterBlaster.js";
 import { aura } from "./items/aura.js";
 import { blowback } from "./items/blowback.js";
+import { orbitals } from "./items/orbitals.js";
 
 // Every item in the game, passive and active. To add one, create its file in src/items/
 // and list it here.
-const ITEM_LIST = [starterBlaster, aura, blowback] as const;
+const ITEM_LIST = [starterBlaster, aura, blowback, orbitals] as const;
 
 export type ItemId = (typeof ITEM_LIST)[number]["id"];
 
