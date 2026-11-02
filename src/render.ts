@@ -1,7 +1,7 @@
 import { CELL, PLAY_AREA_HALF_SIZE, type Vec2 } from "./types.js";
 import { drawEnemy, drawEnemyTelegraph } from "./enemies.js";
 import { drawProjectiles } from "./projectiles.js";
-import type { World } from "./world.js";
+import { HEALTH_PICKUP, type World, type XpOrbTier } from "./world.js";
 
 function drawGrid(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, camX: number, camY: number): void {
   const w = canvas.width;
@@ -41,6 +41,25 @@ function drawPlayAreaWalls(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElem
   ctx.lineWidth = 3;
   ctx.strokeRect(topLeft.x, topLeft.y, size, size);
   ctx.lineWidth = 1;
+}
+
+const XP_ORB_STYLES: Record<XpOrbTier, { fill: string; outline: string }> = {
+  small: { fill: "#7dd3ff", outline: "rgba(240, 252, 255, 0.75)" },
+  medium: { fill: "#ffa94d", outline: "rgba(255, 240, 220, 0.85)" },
+  large: { fill: "#b77dff", outline: "rgba(245, 230, 255, 0.9)" },
+};
+const LATENT_ORB_STYLE = { fill: "#4f9cc8", outline: "rgba(200, 230, 255, 0.4)" };
+
+// A green cross on a dark backing, so it reads as healing rather than another orb.
+function drawHealthPickup(ctx: CanvasRenderingContext2D, p: Vec2): void {
+  const r = HEALTH_PICKUP.radius;
+  ctx.fillStyle = "rgba(10, 30, 15, 0.8)";
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r + 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#6dff8a";
+  ctx.fillRect(p.x - r, p.y - r * 0.35, r * 2, r * 0.7);
+  ctx.fillRect(p.x - r * 0.35, p.y - r, r * 0.7, r * 2);
 }
 
 // Draws the game world with the camera centered on the player. Layer order, bottom to top:
@@ -87,13 +106,23 @@ export function drawWorld(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEleme
       continue;
     }
     // Latent orbs are smaller and dimmer, so enemy drops stand out.
-    ctx.fillStyle = orb.latent ? "#4f9cc8" : "#7dd3ff";
+    const style = orb.latent ? LATENT_ORB_STYLE : XP_ORB_STYLES[orb.tier];
+    ctx.fillStyle = style.fill;
     ctx.beginPath();
     ctx.arc(p.x, p.y, orb.radius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = orb.latent ? "rgba(200, 230, 255, 0.4)" : "rgba(240, 252, 255, 0.75)";
+    ctx.strokeStyle = style.outline;
     ctx.lineWidth = 1.5;
     ctx.stroke();
+  }
+
+  for (const pickup of world.healthPickups) {
+    // Blinks for its last few seconds before it fades.
+    const timeLeft = HEALTH_PICKUP.lifetime - pickup.age;
+    if (timeLeft < 5 && Math.floor(timeLeft * 6) % 2 === 0) {
+      continue;
+    }
+    drawHealthPickup(ctx, worldToScreen(pickup.pos));
   }
 
   world.vfx.draw(ctx, "above", worldToScreen);

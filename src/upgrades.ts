@@ -22,10 +22,13 @@ export interface UpgradeDefinition {
 // are fewer, clearer choices. `description` is what each level adds.
 export const UPGRADE_DEFINITIONS: UpgradeDefinition[] = [
   {
-    id: "move_speed",
-    name: "Move Speed",
-    description: "+18 movement speed",
-    modifiers: [{ stat: "moveSpeed", amount: 18 }],
+    id: "agility",
+    name: "Agility",
+    description: "+18 movement speed, +3% dodge chance",
+    modifiers: [
+      { stat: "moveSpeed", amount: 18 },
+      { stat: "dodgeChance", amount: 0.03 },
+    ],
   },
   {
     id: "power",
@@ -37,10 +40,13 @@ export const UPGRADE_DEFINITIONS: UpgradeDefinition[] = [
     ],
   },
   {
-    id: "attack_speed",
-    name: "Attack Speed",
-    description: "+12% attack speed",
-    modifiers: [{ stat: "attackRateMultiplier", amount: 0.12 }],
+    id: "haste",
+    name: "Haste",
+    description: "+12% attack speed, +10% active item recharge speed",
+    modifiers: [
+      { stat: "attackRateMultiplier", amount: 0.12 },
+      { stat: "activeRechargeMultiplier", amount: 0.1 },
+    ],
   },
   {
     id: "vitality",
@@ -70,16 +76,13 @@ export const UPGRADE_DEFINITIONS: UpgradeDefinition[] = [
     ],
   },
   {
-    id: "dodge",
-    name: "Dodge",
-    description: "+3% dodge chance",
-    modifiers: [{ stat: "dodgeChance", amount: 0.03 }],
-  },
-  {
     id: "armor",
     name: "Armor",
-    description: "+2 armor (reduces damage taken)",
-    modifiers: [{ stat: "armor", amount: 2 }],
+    description: "+2 armor, +4% damage reduction",
+    modifiers: [
+      { stat: "armor", amount: 2 },
+      { stat: "damageReduction", amount: 0.04 },
+    ],
   },
 ];
 

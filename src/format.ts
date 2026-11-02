@@ -1,4 +1,4 @@
-import { MAX_DODGE_CHANCE, type PlayerStats } from "./player.js";
+import { MAX_DAMAGE_REDUCTION, MAX_DODGE_CHANCE, type PlayerStats } from "./player.js";
 
 // Display names and number formatting shared by the HUD, upgrade cards and pause menu.
 
@@ -17,10 +17,12 @@ export const STAT_DISPLAY: Record<StatKey, StatDisplay> = {
   maxHealth: { label: "Max Health", format: "flat", step: 10 },
   healthRegenRate: { label: "Health Regen", format: "perSecond", step: 0.5 },
   armor: { label: "Armor", format: "flat", step: 1 },
+  damageReduction: { label: "Damage Reduction", format: "chance", step: 0.01 },
   dodgeChance: { label: "Dodge Chance", format: "chance", step: 0.01 },
   moveSpeed: { label: "Move Speed", format: "flat", step: 10 },
   attackDamageMultiplier: { label: "Damage", format: "multiplier", step: 0.05 },
   attackRateMultiplier: { label: "Attack Speed", format: "multiplier", step: 0.05 },
+  activeRechargeMultiplier: { label: "Active Recharge", format: "multiplier", step: 0.05 },
   attackSizeMultiplier: { label: "Attack Size", format: "multiplier", step: 0.05 },
   critChance: { label: "Crit Chance", format: "chance", step: 0.01 },
   critDamageMultiplier: { label: "Crit Damage", format: "multiplier", step: 0.05 },
@@ -53,6 +55,9 @@ export function formatStat(key: StatKey, value: number): string {
   }
   if (key === "dodgeChance" && value > MAX_DODGE_CHANCE) {
     text += ` (capped at ${round(MAX_DODGE_CHANCE * 100, 1)}%)`;
+  }
+  if (key === "damageReduction" && value > MAX_DAMAGE_REDUCTION) {
+    text += ` (capped at ${round(MAX_DAMAGE_REDUCTION * 100, 1)}%)`;
   }
   return text;
 }

@@ -41,6 +41,7 @@ export const phaseDash = defineActiveItem({
   scaling: {
     damage: { stat: "attackDamageMultiplier", mode: "multiply" },
     hitWidth: { stat: "attackSizeMultiplier", mode: "multiply" },
+    cooldown: { stat: "activeRechargeMultiplier", mode: "divide", minStat: 0.15 },
   },
   perLevel: {
     damage: 8,

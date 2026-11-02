@@ -34,13 +34,55 @@ export interface SimContext {
   spawnVfx(spec: VfxSpec): void;
 }
 
+// Enemy drops roll a tier. Every orb is the same size; tiers differ in color and value.
+export type XpOrbTier = "small" | "medium" | "large";
+
 export interface XpOrb {
   pos: Vec2;
   value: number;
   radius: number;
+  tier: XpOrbTier;
   // Scattered across the play area at the start, rather than dropped by an enemy.
   latent: boolean;
 }
+
+// Chance of a medium or large orb, and its value as a multiple of the enemy's XP reward.
+// Anything else is small, worth SMALL_XP_MULTIPLIER, which is derived so the average drop is
+// still exactly the enemy's XP reward.
+export const XP_ORB_TIERS = {
+  medium: { chance: 0.1, multiplier: 2.5 },
+  large: { chance: 0.02, multiplier: 6 },
+};
+const BONUS_TIERS = Object.values(XP_ORB_TIERS);
+const SMALL_XP_MULTIPLIER =
+  (1 - BONUS_TIERS.reduce((sum, t) => sum + t.chance * t.multiplier, 0)) / (1 - BONUS_TIERS.reduce((sum, t) => sum + t.chance, 0));
+
+function rollXpOrbTier(): { tier: XpOrbTier; multiplier: number } {
+  let roll = Math.random();
+  for (const [tier, t] of Object.entries(XP_ORB_TIERS) as [XpOrbTier, (typeof XP_ORB_TIERS)["medium"]][]) {
+    if (roll < t.chance) {
+      return { tier, multiplier: t.multiplier };
+    }
+    roll -= t.chance;
+  }
+  return { tier: "small", multiplier: SMALL_XP_MULTIPLIER };
+}
+
+// A small heal some enemies drop. Pulled in by the magnet like XP. It fades after `lifetime`
+// seconds, so they can't pile up into a stockpile.
+export interface HealthPickup {
+  pos: Vec2;
+  age: number;
+}
+
+export const HEALTH_PICKUP = {
+  // Chance per kill that gives XP (minibosses and bosses included).
+  dropChance: 0.02,
+  // Fraction of max health restored.
+  healFraction: 0.1,
+  lifetime: 30,
+  radius: 6,
+};
 
 // Small XP orbs scattered sparsely over the whole play area, so exploring is worth a little.
 // Collected ones are replaced over time, out of the player's sight.
@@ -62,6 +104,12 @@ const CRIT_FLASH_SCALE = 1.6;
 const COLLECT_DISTANCE = 10;
 const QUERY_CELL_SIZE = 96;
 
+// Enemies this many screen lengths from the player are removed, so ones left far behind
+// don't fill the caps and hold back spawns near the player. A screen length is the width
+// of a 1080p screen, since the world renders 1:1 and SPAWN_RADIUS is set from it too.
+export const DESPAWN_SCREEN_LENGTHS = 2;
+const SCREEN_LENGTH = 1920;
+
 // Floating numbers over enemies when they take damage. Crits show bigger and white.
 export const SHOW_DAMAGE_NUMBERS = true;
 
@@ -81,6 +129,7 @@ export class World implements SimContext {
   readonly player = new Player(xpToNextLevel(1, DEFAULT_LEVEL_CURVE));
   readonly enemies: ActiveEnemy[] = [];
   readonly xpOrbs: XpOrb[] = [];
+  readonly healthPickups: HealthPickup[] = [];
   readonly projectiles: Projectile[] = [];
   readonly vfx = new VfxSystem();
   readonly spawnEngine = new EnemySpawnEngine(DEFAULT_SPAWN_STAGES);
@@ -158,9 +207,11 @@ export class World implements SimContext {
       for (const enemy of this.enemies) {
         clampToPlayArea(enemy.pos, enemy.template.radius);
       }
+      this.despawnFarEnemies();
       this.removeDeadEnemies();
       this.refillLatentOrbs();
       this.updateXpOrbs(rewards);
+      this.updateHealthPickups();
       this.vfx.update(stepDt);
 
       if (rewards.length > 0) {
@@ -348,22 +399,52 @@ export class World implements SimContext {
   }
 
   // Pulls and collects XP orbs, adding any upgrade rewards earned to `rewards`.
+  // Pulls a pickup toward the player if it's within magnet range. Returns its distance
+  // from the player before the pull.
+  private pullTowardPlayer(pos: Vec2): number {
+    const magnetRange = this.player.stats.magnetRange;
+    const dx = this.player.pos.x - pos.x;
+    const dy = this.player.pos.y - pos.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    if (dist < magnetRange) {
+      const pullSpeed = 180 + (magnetRange - dist) * 2.2;
+      pos.x += (dx / dist) * pullSpeed * this.dt;
+      pos.y += (dy / dist) * pullSpeed * this.dt;
+    }
+    return dist;
+  }
+
+  private updateHealthPickups(): void {
+    const collectRange = this.player.radius + COLLECT_DISTANCE + HEALTH_PICKUP.radius;
+    for (let i = this.healthPickups.length - 1; i >= 0; i -= 1) {
+      const pickup = this.healthPickups[i];
+      pickup.age += this.dt;
+      if (pickup.age >= HEALTH_PICKUP.lifetime) {
+        swapRemove(this.healthPickups, i);
+        continue;
+      }
+      if (this.pullTowardPlayer(pickup.pos) < collectRange) {
+        const amount = this.player.stats.maxHealth * HEALTH_PICKUP.healFraction;
+        healPlayer(this.player, amount);
+        this.vfx.spawn({
+          kind: "text",
+          pos: { x: this.player.pos.x, y: this.player.pos.y - this.player.radius },
+          life: 0.7,
+          layer: "above",
+          params: { text: `+${Math.round(amount)}`, color: "#7dff9a", size: 14, rise: 28 },
+        });
+        swapRemove(this.healthPickups, i);
+      }
+    }
+  }
+
   private updateXpOrbs(rewards: UpgradeReward[]): void {
     const player = this.player;
-    const magnetRange = player.stats.magnetRange;
     const collectRange = player.radius + COLLECT_DISTANCE;
 
     for (let i = this.xpOrbs.length - 1; i >= 0; i -= 1) {
       const orb = this.xpOrbs[i];
-      const dx = player.pos.x - orb.pos.x;
-      const dy = player.pos.y - orb.pos.y;
-      const dist = Math.hypot(dx, dy) || 1;
-
-      if (dist < magnetRange) {
-        const pullSpeed = 180 + (magnetRange - dist) * 2.2;
-        orb.pos.x += (dx / dist) * pullSpeed * this.dt;
-        orb.pos.y += (dy / dist) * pullSpeed * this.dt;
-      }
+      const dist = this.pullTowardPlayer(orb.pos);
 
       if (dist < collectRange + orb.radius) {
         const gainedXp = orb.value * player.stats.xpMultiplier;
@@ -383,7 +464,7 @@ export class World implements SimContext {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const pos = { x: (Math.random() * 2 - 1) * span, y: (Math.random() * 2 - 1) * span };
       if (Math.hypot(pos.x - this.player.pos.x, pos.y - this.player.pos.y) >= minDistance) {
-        this.xpOrbs.push({ pos, value: LATENT_XP.value, radius: 4, latent: true });
+        this.xpOrbs.push({ pos, value: LATENT_XP.value, radius: 4, tier: "small", latent: true });
         this.latentOrbCount += 1;
         return;
       }
@@ -420,6 +501,23 @@ export class World implements SimContext {
     }
   }
 
+  // Silently removes far-away normals: no XP, no kill, no death spawns. Minibosses and
+  // bosses always stay, since stages wait for them to die.
+  private despawnFarEnemies(): void {
+    const maxDist = DESPAWN_SCREEN_LENGTHS * SCREEN_LENGTH;
+    for (let i = this.enemies.length - 1; i >= 0; i -= 1) {
+      const enemy = this.enemies[i];
+      if (enemy.template.kind !== "normal") {
+        continue;
+      }
+      const dx = enemy.pos.x - this.player.pos.x;
+      const dy = enemy.pos.y - this.player.pos.y;
+      if (dx * dx + dy * dy > maxDist * maxDist) {
+        swapRemove(this.enemies, i);
+      }
+    }
+  }
+
   private removeDeadEnemies(): void {
     const spawned: ActiveEnemy[] = [];
     for (let i = this.enemies.length - 1; i >= 0; i -= 1) {
@@ -428,7 +526,11 @@ export class World implements SimContext {
         continue;
       }
       if (!enemy.noReward) {
-        this.xpOrbs.push({ pos: cloneVec2(enemy.pos), value: enemy.xpReward, radius: 5, latent: false });
+        const { tier, multiplier } = rollXpOrbTier();
+        this.xpOrbs.push({ pos: cloneVec2(enemy.pos), value: enemy.xpReward * multiplier, radius: 5, tier, latent: false });
+        if (Math.random() < HEALTH_PICKUP.dropChance) {
+          this.healthPickups.push({ pos: cloneVec2(enemy.pos), age: 0 });
+        }
         this.runStats.kills += 1;
       }
       const onDeath = enemy.template.onDeath;

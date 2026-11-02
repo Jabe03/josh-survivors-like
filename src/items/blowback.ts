@@ -22,6 +22,7 @@ export const blowback = defineActiveItem({
   scaling: {
     radius: { stat: "attackSizeMultiplier", mode: "multiply" },
     damage: { stat: "attackDamageMultiplier", mode: "multiply" },
+    cooldown: { stat: "activeRechargeMultiplier", mode: "divide", minStat: 0.15 },
   },
   perLevel: {
     radius: 25,

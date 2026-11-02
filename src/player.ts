@@ -6,6 +6,8 @@ export interface PlayerStats {
   moveSpeed: number;
   attackDamageMultiplier: number;
   attackRateMultiplier: number;
+  // How fast active items recharge; their cooldowns are divided by it.
+  activeRechargeMultiplier: number;
   attackSizeMultiplier: number;
   maxHealth: number;
   healthRegenRate: number;
@@ -16,6 +18,8 @@ export interface PlayerStats {
   xpMultiplier: number;
   dodgeChance: number;
   armor: number;
+  // Fraction of each hit ignored, applied before armor.
+  damageReduction: number;
   
 }
 
@@ -36,11 +40,14 @@ export const BASE_PLAYER_MAX_HEALTH = 100;
 export const MIN_DAMAGE_PER_HIT = 1;
 // Dodge chance is clamped to this, however many upgrades stack.
 export const MAX_DODGE_CHANCE = 0.6;
+// Damage reduction is clamped to this, so the player can never shrug off everything.
+export const MAX_DAMAGE_REDUCTION = 0.5;
 
 export const BASE_PLAYER_STATS: Readonly<PlayerStats> = {
-  moveSpeed: 240,
+  moveSpeed: 210,
   attackDamageMultiplier: 1,
   attackRateMultiplier: 1,
+  activeRechargeMultiplier: 1,
   attackSizeMultiplier: 1,
   maxHealth: BASE_PLAYER_MAX_HEALTH,
   healthRegenRate: 0,
@@ -49,7 +56,8 @@ export const BASE_PLAYER_STATS: Readonly<PlayerStats> = {
   magnetRange: 60,
   xpMultiplier: 1,
   dodgeChance: 0,
-  armor: 0
+  armor: 0,
+  damageReduction: 0,
 };
 
 export class Player {
@@ -125,7 +133,8 @@ export function damagePlayer(player: Player, amount: number): boolean {
   if (Math.random() < dodgeChance) {
     return false;
   }
-  const reduced = Math.max(MIN_DAMAGE_PER_HIT, amount - player.stats.armor);
+  const reduction = Math.min(MAX_DAMAGE_REDUCTION, player.stats.damageReduction);
+  const reduced = Math.max(MIN_DAMAGE_PER_HIT, amount * (1 - reduction) - player.stats.armor);
   player.health = Math.max(0, player.health - reduced);
   return true;
 }

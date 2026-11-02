@@ -318,7 +318,7 @@ function getBehaviorHandler(id: EnemyBehaviorId): BehaviorHandler<unknown, unkno
 
 // ---- Visuals: shape and colors. Adding a shape means adding it to SHAPE_PATHS. ----
 
-export type EnemyShape = "circle" | "square" | "triangle" | "diamond" | "hexagon" | "star";
+export type EnemyShape = "circle" | "square" | "triangle" | "diamond" | "hexagon" | "star" | "spikeball";
 
 // Points around (x, y) at radius r, starting straight up.
 function polygonPath(ctx: CanvasRenderingContext2D, x: number, y: number, radii: readonly number[]): void {
@@ -339,6 +339,9 @@ export interface EnemyVisual {
   shape: EnemyShape;
   color: string;
   healthBarColor: string;
+  // Circles drawn on top of the shape, in order, each `scale` times the radius (e.g. a
+  // glowing center).
+  cores?: { color: string; scale: number }[];
 }
 
 // Each entry traces the shape's path, sized to fit the enemy's collision radius.
@@ -360,6 +363,8 @@ const SHAPE_PATHS: Record<EnemyShape, (ctx: CanvasRenderingContext2D, x: number,
   },
   hexagon: (ctx, x, y, r) => polygonPath(ctx, x, y, [r, r, r, r, r, r]),
   star: (ctx, x, y, r) => polygonPath(ctx, x, y, [r, r * 0.5, r, r * 0.5, r, r * 0.5, r, r * 0.5, r, r * 0.5]),
+  // A body ringed with 10 sharp spikes, like a sea mine.
+  spikeball: (ctx, x, y, r) => polygonPath(ctx, x, y, Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? r : r * 0.62))),
 };
 
 // ---- Templates ----
@@ -407,7 +412,17 @@ const DASHER_VISUAL: EnemyVisual = { shape: "triangle", color: "#e8913a", health
 const SHOOTER_VISUAL: EnemyVisual = { shape: "diamond", color: "#a76ad6", healthBarColor: "#d6a8ff" };
 const SPLITTER_VISUAL: EnemyVisual = { shape: "square", color: "#5fae4c", healthBarColor: "#9be27d" };
 const SPLITLING_VISUAL: EnemyVisual = { shape: "square", color: "#86cf6e", healthBarColor: "#b8f0a0" };
-const BOMBER_VISUAL: EnemyVisual = { shape: "star", color: "#e6c84a", healthBarColor: "#fff08a" };
+// Dark spikes around a red-hot center, so it reads as "don't let this near you".
+const BOMBER_VISUAL: EnemyVisual = {
+  shape: "spikeball",
+  color: "#e0892a",
+  healthBarColor: "#fff08a",
+  cores: [
+    { color: "#3a1a10", scale: 0.55 },
+    { color: "#ff4a2a", scale: 0.38 },
+    { color: "#ffe08a", scale: 0.16 },
+  ],
+};
 const SHIELDER_VISUAL: EnemyVisual = { shape: "hexagon", color: "#4f9ad6", healthBarColor: "#9ccfff" };
 const MINIBOSS_VISUAL: EnemyVisual = { shape: "circle", color: "#c6552f", healthBarColor: "#ffb07f" };
 const BOSS_VISUAL: EnemyVisual = { shape: "circle", color: "#9a2a2a", healthBarColor: "#ff9d9d" };
@@ -440,7 +455,7 @@ export const ENEMY_LIBRARY = {
   },
   splitling: SPLITLING,
   // `damage` is the explosion; it stops well outside contact range.
-  bomber: { kind: "normal", speed: 70, radius: 13, health: 14, xpReward: 6, damage: 22, hitInterval: 1, knockbackMultiplier: 1, special: true, behavior: BOMBER, visual: BOMBER_VISUAL },
+  bomber: { kind: "normal", speed: 100, radius: 13, health: 14, xpReward: 6, damage: 22, hitInterval: 1, knockbackMultiplier: 1, special: true, behavior: BOMBER, visual: BOMBER_VISUAL },
   shielder: {
     kind: "normal", speed: 40, radius: 16, health: 40, xpReward: 10, damage: 6, hitInterval: 0.9, knockbackMultiplier: 0.5, special: true,
     behavior: CHASE, visual: SHIELDER_VISUAL, shieldAura: { radius: 170, damageReduction: 0.5 },
@@ -631,6 +646,12 @@ export function drawEnemy(ctx: CanvasRenderingContext2D, enemy: ActiveEnemy, scr
   ctx.beginPath();
   SHAPE_PATHS[visual.shape](ctx, screen.x, screen.y, radius);
   ctx.fill();
+  for (const core of visual.cores ?? []) {
+    ctx.fillStyle = core.color;
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, radius * core.scale, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   if (enemy.shield > 0) {
     ctx.strokeStyle = "#9ccfff";

@@ -17,7 +17,9 @@ export const overcharge = defineActiveItem({
     // Seconds to recharge, counted from when it is used.
     cooldown: 18,
   },
-  scaling: {},
+  scaling: {
+    cooldown: { stat: "activeRechargeMultiplier", mode: "divide", minStat: 0.15 },
+  },
   perLevel: {
     duration: 0.5,
     cooldown: -1,
