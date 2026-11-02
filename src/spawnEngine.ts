@@ -1,11 +1,18 @@
 import type { Vec2 } from "./types.js";
-import { createEnemy, ENEMY_LIBRARY, type ActiveEnemy, type EnemyId, type EnemyKind, type EnemyTemplate } from "./enemies.js";
+import { createEnemy, ENEMY_LIBRARY, type ActiveEnemy, type EnemyId, type EnemyTemplate } from "./enemies.js";
 
-// Distance from the player at which each kind of enemy appears.
-const SPAWN_RING_BY_KIND: Record<EnemyKind, { min: number; max: number }> = {
-  normal: { min: 380, max: 640 },
-  miniboss: { min: 420, max: 740 },
-  boss: { min: 520, max: 760 },
+// Distance from the player at which every enemy appears: just off-screen on a 1080p screen,
+// whose corners are ~1101 from the center, plus a margin of at least the largest enemy
+// radius (the boss, 36). Larger screens can see enemies spawn at their edges.
+const SPAWN_RADIUS = 1150;
+
+// Normals from the first stage's table, spawned once when the run starts so the player
+// doesn't wait for the first wave to walk in from SPAWN_RADIUS. Each one spawns 0% to
+// maxCloser closer than SPAWN_RADIUS, so some may appear on-screen. They count toward
+// the first stage's maxNormals like any other normal.
+const OPENING_BATCH = {
+  count: 12,
+  maxCloser: 0.5,
 };
 
 export interface SpawnTableEntry {
@@ -71,7 +78,7 @@ export const DEFAULT_SPAWN_STAGES: SpawnStage[] = [
   {
     startTime: 120,
     name: "Boss Wave",
-    clearOnEnter: true,
+    clearOnEnter: false,
     spawnInterval: 99,
     maxNormals: 0,
     normals: [],
@@ -135,6 +142,10 @@ export class EnemySpawnEngine {
     this.advanceIfCleared();
     this.currentStageIndex = this.getCurrentStageIndex();
     const stage = this.stages[this.currentStageIndex];
+
+    if (this.enteredStageIndex === -1) {
+      this.spawnOpeningBatch(playerPos, enemies, this.stages[0]);
+    }
 
     if (this.enteredStageIndex !== this.currentStageIndex) {
       this.enteredStageIndex = this.currentStageIndex;
@@ -217,11 +228,20 @@ export class EnemySpawnEngine {
     return currentIndex;
   }
 
-  private spawnEnemyNear(playerPos: Vec2, template: EnemyTemplate): ActiveEnemy {
-    const ring = SPAWN_RING_BY_KIND[template.kind];
+  private spawnOpeningBatch(playerPos: Vec2, enemies: ActiveEnemy[], stage: SpawnStage): void {
+    for (let i = 0; i < OPENING_BATCH.count; i += 1) {
+      const enemyId = pickWeighted(stage.normals);
+      if (enemyId === null) {
+        return;
+      }
+      const distance = SPAWN_RADIUS * (1 - Math.random() * OPENING_BATCH.maxCloser);
+      enemies.push(this.spawnEnemyNear(playerPos, ENEMY_LIBRARY[enemyId], distance));
+    }
+  }
+
+  private spawnEnemyNear(playerPos: Vec2, template: EnemyTemplate, distance = SPAWN_RADIUS): ActiveEnemy {
     const healthMultiplier = Math.pow(ENDLESS_SCALING.healthMultiplierPerTier, this.getEndlessTier());
     const angle = Math.random() * Math.PI * 2;
-    const distance = ring.min + Math.random() * (ring.max - ring.min);
     const pos = {
       x: playerPos.x + Math.cos(angle) * distance,
       y: playerPos.y + Math.sin(angle) * distance,
