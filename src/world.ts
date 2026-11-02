@@ -16,7 +16,7 @@ export interface SimContext {
   // Rolls for a crit and shows a hit flash (a bigger white one on crits). Returns the health
   // actually removed, which is less than the hit on overkill.
   damageEnemy(enemy: ActiveEnemy, amount: number, hitFlash?: HitFlashStyle): number;
-  // Applies dodge and armor. Returns false if the hit was dodged.
+  // Applies dodge and armor. Returns false if the hit was dodged or the player is invulnerable.
   hurtPlayer(amount: number): boolean;
   healPlayer(amount: number): void;
   // Nearest enemy whose center is within range of pos, or null.
@@ -120,6 +120,12 @@ export class World implements SimContext {
       clampToPlayArea(this.player.pos, this.player.radius);
       this.player.velocity.x = (this.player.pos.x - prevX) / stepDt;
       this.player.velocity.y = (this.player.pos.y - prevY) / stepDt;
+      if (move.x !== 0 || move.y !== 0) {
+        const length = Math.hypot(move.x, move.y);
+        this.player.facing.x = move.x / length;
+        this.player.facing.y = move.y / length;
+      }
+      this.player.invulnerableTime = Math.max(0, this.player.invulnerableTime - stepDt);
       healPlayer(this.player, this.player.stats.healthRegenRate * stepDt);
 
       this.spawnEngine.update(stepDt, this.player.pos, this.enemies);
@@ -127,10 +133,17 @@ export class World implements SimContext {
 
       this.rebuildQueryGrid();
       this.applyShieldAuras();
+      // Haste makes passive items see a longer substep, so everything about them (fire
+      // rates, spins, durations) runs faster. The active item keeps normal time, so it
+      // doesn't recharge faster during its own effect.
+      const hasted = this.player.itemHasteTime > 0;
+      this.player.itemHasteTime = Math.max(0, this.player.itemHasteTime - stepDt);
       for (const item of this.player.allItems) {
         this.damageSource = item.item.id;
+        this.dt = hasted && item !== this.player.activeItem ? stepDt * this.player.itemHasteMultiplier : stepDt;
         item.update(this);
       }
+      this.dt = stepDt;
       if (this.activeItemRequested) {
         this.activeItemRequested = false;
         this.damageSource = this.player.activeItem?.item.id ?? null;

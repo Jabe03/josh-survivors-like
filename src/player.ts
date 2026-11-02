@@ -56,6 +56,13 @@ export class Player {
   pos: Vec2 = { x: 0, y: 0 };
   // How fast the player actually moved last substep (after walls), for enemies that lead their aim.
   velocity: Vec2 = { x: 0, y: 0 };
+  // Unit vector of the last direction the player moved in; kept while standing still.
+  facing: Vec2 = { x: 1, y: 0 };
+  // Seconds left during which hits are ignored (e.g. mid-dash). Ticked down by World.
+  invulnerableTime = 0;
+  // While itemHasteTime > 0, passive items run this many times faster. Ticked down by World.
+  itemHasteMultiplier = 1;
+  itemHasteTime = 0;
   radius = BASE_PLAYER_RADIUS;
   health = BASE_PLAYER_MAX_HEALTH;
   stats: PlayerStats = { ...BASE_PLAYER_STATS };
@@ -111,6 +118,9 @@ export function healPlayer(player: Player, amount: number): void {
 
 // Applies dodge, then armor. Returns false if the hit was dodged.
 export function damagePlayer(player: Player, amount: number): boolean {
+  if (player.invulnerableTime > 0) {
+    return false;
+  }
   const dodgeChance = Math.min(MAX_DODGE_CHANCE, player.stats.dodgeChance);
   if (Math.random() < dodgeChance) {
     return false;

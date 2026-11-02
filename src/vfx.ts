@@ -9,6 +9,9 @@ interface VfxParamsMap {
   burst: { radius: number; color: string; growth: number };
   // Line from the effect's position to `to`, fading out.
   line: { to: Vec2; color: string; width: number };
+  // Jagged lightning from the effect's position to `to`, re-jittered every frame: a wide
+  // glow in `color` with a thin white core, fading out.
+  bolt: { to: Vec2; color: string; width: number; jitter: number };
   // Circle outline that scales from startScale to endScale while fading from `alpha`.
   ring: { radius: number; color: string; width: number; startScale: number; endScale: number; alpha: number };
   // Text that floats up by `rise` while fading out over its second half (damage numbers).
@@ -57,6 +60,34 @@ const VFX_DRAWERS: { [K in VfxKind]: VfxDrawer<VfxParamsMap[K]> } = {
     ctx.moveTo(screen.x, screen.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
+  },
+  bolt: (ctx, screen, params, t, worldToScreen) => {
+    const to = worldToScreen(params.to);
+    const dx = to.x - screen.x;
+    const dy = to.y - screen.y;
+    const length = Math.hypot(dx, dy) || 1;
+    // About one kink every 18px, offset sideways.
+    const segments = Math.max(2, Math.round(length / 18));
+    const nx = -dy / length;
+    const ny = dx / length;
+    ctx.beginPath();
+    ctx.moveTo(screen.x, screen.y);
+    for (let i = 1; i < segments; i += 1) {
+      const f = i / segments;
+      const offset = (Math.random() - 0.5) * 2 * params.jitter;
+      ctx.lineTo(screen.x + dx * f + nx * offset, screen.y + dy * f + ny * offset);
+    }
+    ctx.lineTo(to.x, to.y);
+    ctx.lineJoin = "round";
+    ctx.globalAlpha = (1 - t) * 0.6;
+    ctx.strokeStyle = params.color;
+    ctx.lineWidth = params.width * 2.5;
+    ctx.stroke();
+    ctx.globalAlpha = 1 - t;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = params.width;
+    ctx.stroke();
+    ctx.lineJoin = "miter";
   },
   ring: (ctx, screen, params, t) => {
     const scale = params.startScale + (params.endScale - params.startScale) * t;

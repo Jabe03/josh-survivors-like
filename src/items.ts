@@ -6,10 +6,14 @@ import { blowback } from "./items/blowback.js";
 import { orbitals } from "./items/orbitals.js";
 import { fireball } from "./items/fireball.js";
 import { magmaOrb } from "./items/magmaOrb.js";
+import { chainLightning } from "./items/chainLightning.js";
+import { thunderstrike } from "./items/thunderstrike.js";
+import { phaseDash } from "./items/phaseDash.js";
+import { overcharge } from "./items/overcharge.js";
 
 // Every item in the game, passive and active. To add one, create its file in src/items/
 // and list it here.
-const ITEM_LIST = [starterBlaster, aura, blowback, orbitals, fireball, magmaOrb] as const;
+const ITEM_LIST = [starterBlaster, aura, blowback, orbitals, fireball, magmaOrb, chainLightning, thunderstrike, phaseDash, overcharge] as const;
 
 export type ItemId = (typeof ITEM_LIST)[number]["id"];
 

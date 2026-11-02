@@ -59,9 +59,12 @@ export function drawWorld(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEleme
 
   const playerScreen = worldToScreen(player.pos);
   ctx.fillStyle = "#eadfc8";
+  // Flickers while invulnerable (e.g. mid-dash).
+  ctx.globalAlpha = player.invulnerableTime > 0 ? 0.45 + 0.25 * Math.sin(performance.now() / 30) : 1;
   ctx.beginPath();
   ctx.arc(playerScreen.x, playerScreen.y, player.radius, 0, Math.PI * 2);
   ctx.fill();
+  ctx.globalAlpha = 1;
 
   for (const item of player.allItems) {
     item.draw({ ctx, player, worldToScreen });
