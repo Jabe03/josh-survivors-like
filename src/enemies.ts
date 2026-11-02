@@ -363,8 +363,8 @@ const SHAPE_PATHS: Record<EnemyShape, (ctx: CanvasRenderingContext2D, x: number,
   },
   hexagon: (ctx, x, y, r) => polygonPath(ctx, x, y, [r, r, r, r, r, r]),
   star: (ctx, x, y, r) => polygonPath(ctx, x, y, [r, r * 0.5, r, r * 0.5, r, r * 0.5, r, r * 0.5, r, r * 0.5]),
-  // A body ringed with 10 sharp spikes, like a sea mine.
-  spikeball: (ctx, x, y, r) => polygonPath(ctx, x, y, Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? r : r * 0.62))),
+  // A body ringed with 8 spikes, like a sea mine.
+  spikeball: (ctx, x, y, r) => polygonPath(ctx, x, y, Array.from({ length: 16 }, (_, i) => (i % 2 === 0 ? r : r * 0.6))),
 };
 
 // ---- Templates ----
@@ -412,17 +412,8 @@ const DASHER_VISUAL: EnemyVisual = { shape: "triangle", color: "#e8913a", health
 const SHOOTER_VISUAL: EnemyVisual = { shape: "diamond", color: "#a76ad6", healthBarColor: "#d6a8ff" };
 const SPLITTER_VISUAL: EnemyVisual = { shape: "square", color: "#5fae4c", healthBarColor: "#9be27d" };
 const SPLITLING_VISUAL: EnemyVisual = { shape: "square", color: "#86cf6e", healthBarColor: "#b8f0a0" };
-// Dark spikes around a red-hot center, so it reads as "don't let this near you".
-const BOMBER_VISUAL: EnemyVisual = {
-  shape: "spikeball",
-  color: "#e0892a",
-  healthBarColor: "#fff08a",
-  cores: [
-    { color: "#3a1a10", scale: 0.55 },
-    { color: "#ff4a2a", scale: 0.38 },
-    { color: "#ffe08a", scale: 0.16 },
-  ],
-};
+// A flat spiked ball like the other flat shapes; the spikes read as "don't let this near you".
+const BOMBER_VISUAL: EnemyVisual = { shape: "spikeball", color: "#e6c84a", healthBarColor: "#fff08a" };
 const SHIELDER_VISUAL: EnemyVisual = { shape: "hexagon", color: "#4f9ad6", healthBarColor: "#9ccfff" };
 const MINIBOSS_VISUAL: EnemyVisual = { shape: "circle", color: "#c6552f", healthBarColor: "#ffb07f" };
 const BOSS_VISUAL: EnemyVisual = { shape: "circle", color: "#9a2a2a", healthBarColor: "#ff9d9d" };
