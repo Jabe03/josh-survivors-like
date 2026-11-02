@@ -8,7 +8,8 @@ const HIT_FLASH: HitFlashStyle = { radius: 10, life: 0.16, color: "#ff9966" };
 export const aura = definePassiveItem({
   id: "aura",
   name: "Aura",
-  maxLevel: 1,
+  description: "Pulses damage to every enemy around you.",
+  maxLevel: 5,
   params: {
     radius: 140,
     damage: 2,
@@ -18,7 +19,10 @@ export const aura = definePassiveItem({
     radius: { stat: "attackSizeMultiplier", mode: "multiply" },
     damage: { stat: "attackDamageMultiplier", mode: "multiply" },
   },
-  perLevel: {},
+  perLevel: {
+    damage: 1,
+    radius: 15,
+  },
 
   createState: () => ({ cooldown: 0 }),
 

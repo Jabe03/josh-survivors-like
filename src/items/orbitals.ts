@@ -41,6 +41,7 @@ function dissipate(context: ItemUpdateContext, pos: Vec2, size: number): void {
 export const orbitals = definePassiveItem({
   id: "orbitals",
   name: "Orbitals",
+  description: "Orbs circle you, each until its damage is spent.",
   maxLevel: 5,
   params: {
     count: 2,

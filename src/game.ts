@@ -1,7 +1,8 @@
 import type { Vec2 } from "./types.js";
 import { isTextEntryTarget, readMove, setupInput } from "./input.js";
 import { DEV_MODE_HOTKEY, PauseMenu } from "./pauseMenu.js";
-import { applyUpgrade, chooseUpgradeOptions, type UpgradeDefinition } from "./upgrades.js";
+import { chooseItemOptions, chooseStatOptions, type UpgradeChoice } from "./upgrades.js";
+import type { UpgradeReward } from "./leveling.js";
 import { World } from "./world.js";
 import { drawWorld } from "./render.js";
 import { drawHud, ToastQueue } from "./hud.js";
@@ -32,8 +33,9 @@ let pointerPressedAt: Vec2 | null = null;
 let world = new World();
 const toasts = new ToastQueue();
 let victoryReached = false;
-let pendingLevelUps = 0;
-let upgradeOptions: UpgradeDefinition[] = [];
+// Rewards earned but not picked yet, oldest first. The first one is on screen.
+let pendingRewards: UpgradeReward[] = [];
+let upgradeOptions: UpgradeChoice[] = [];
 let pauseMenu: PauseMenu | null = null;
 
 // Where the upgrade cards were last drawn, for click hit-testing.
@@ -43,7 +45,7 @@ function resetRun(): void {
   world = new World();
   toasts.clear();
   victoryReached = false;
-  pendingLevelUps = 0;
+  pendingRewards = [];
   upgradeOptions = [];
 }
 
@@ -95,9 +97,14 @@ function consumeUpgradeChoice(): number | null {
   return choice !== null && choice < upgradeOptions.length ? choice : null;
 }
 
-function grantUpgrade(upgrade: UpgradeDefinition): void {
-  applyUpgrade(world.player, upgrade);
-  toasts.push(`Upgrade: ${upgrade.name}: ${upgrade.description}`);
+function grantUpgrade(choice: UpgradeChoice): void {
+  choice.apply(world.player);
+  toasts.push(`${choice.name}: ${choice.description}`);
+}
+
+// Rolls the cards for the reward at the front of the queue.
+function offerNextReward(): void {
+  upgradeOptions = pendingRewards[0] === "item" ? chooseItemOptions(world.player) : chooseStatOptions();
 }
 
 function resize(canvas: HTMLCanvasElement): void {
@@ -105,10 +112,22 @@ function resize(canvas: HTMLCanvasElement): void {
   canvas.height = innerHeight;
 }
 
+// The world and the HUD are each drawn inside save/restore, so canvas state one leaves behind
+// (lineWidth, globalAlpha, ...) can't leak into the other or into the next frame. Without
+// this, strokes that don't set their own width (grid, HUD panels) flicker as it changes.
 function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
+  ctx.save();
   drawWorld(ctx, canvas, world);
-  drawHud(ctx, canvas, world, toasts);
+  ctx.restore();
 
+  ctx.save();
+  drawHud(ctx, canvas, world, toasts);
+  drawOverlay(ctx, canvas);
+  ctx.restore();
+}
+
+// The full-screen overlay for the current state, if it has one.
+function drawOverlay(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
   switch (gameState) {
     case "running":
       break;
@@ -119,7 +138,13 @@ function draw(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement): void {
       drawPausedBackdrop(ctx, canvas);
       break;
     case "levelup":
-      upgradeCardRects = drawUpgradeChoice(ctx, canvas, upgradeOptions, pendingLevelUps);
+      upgradeCardRects = drawUpgradeChoice(
+        ctx,
+        canvas,
+        upgradeOptions,
+        pendingRewards[0] === "item" ? "Level Up! Choose an item" : "Stat Up!",
+        pendingRewards.length,
+      );
       break;
     case "victory":
       drawVictoryScreen(ctx, canvas, world.player.progression.level);
@@ -145,12 +170,12 @@ function runFrame(dt: number): void {
     activeItemPressed = false;
     world.requestActiveItemUse();
   }
-  pendingLevelUps += world.step(dt, readMove());
+  pendingRewards.push(...world.step(dt, readMove()));
   toasts.update(dt);
   if (world.player.health <= 0) {
     setGameState("dead");
-  } else if (pendingLevelUps > 0) {
-    upgradeOptions = chooseUpgradeOptions();
+  } else if (pendingRewards.length > 0) {
+    offerNextReward();
     setGameState("levelup");
   } else if (!victoryReached && world.spawnEngine.getElapsedTime() >= VICTORY_TIME) {
     victoryReached = true;
@@ -223,9 +248,9 @@ export function startGame(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext
       const choice = consumeUpgradeChoice();
       if (choice !== null) {
         grantUpgrade(upgradeOptions[choice]);
-        pendingLevelUps -= 1;
-        if (pendingLevelUps > 0) {
-          upgradeOptions = chooseUpgradeOptions();
+        pendingRewards.shift();
+        if (pendingRewards.length > 0) {
+          offerNextReward();
         } else {
           setGameState("running");
         }

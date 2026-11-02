@@ -19,8 +19,11 @@ export const ITEM_DEFINITIONS = Object.fromEntries(ERASED_ITEM_LIST.map((item) =
 
 export const DEFAULT_EQUIPPED_ITEM_IDS: ItemId[] = ["starter_blaster", "aura", "blowback"];
 
+// No item levels past this, whatever its maxLevel says.
+export const MAX_ITEM_LEVEL = 5;
+
 export function getMaxLevel(item: AnyItemDefinition): number {
-  return Math.max(1, item.maxLevel);
+  return Math.min(MAX_ITEM_LEVEL, Math.max(1, item.maxLevel));
 }
 
 // Params after level bonuses, and after stat scaling when stats are given.

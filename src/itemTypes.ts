@@ -30,7 +30,9 @@ export interface ItemDrawContext {
 interface ItemBase<P extends ItemParams, S> {
   id: string;
   name: string;
-  // 1 means the item has no levels.
+  // One short line for the upgrade card offering it as a new item.
+  description: string;
+  // 1 means the item has no levels. Capped at MAX_ITEM_LEVEL.
   maxLevel: number;
   // Base values at level 1, before player stats.
   params: P;

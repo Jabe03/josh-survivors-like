@@ -28,6 +28,7 @@ interface MagmaOrbState {
 export const magmaOrb = definePassiveItem({
   id: "magma_orb",
   name: "Magma Orb",
+  description: "Splashes on impact and leaves a pool of magma.",
   maxLevel: 5,
   params: {
     // Seconds between casts.

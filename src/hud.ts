@@ -1,4 +1,5 @@
 import { getMaxLevel } from "./items.js";
+import { statUpFractions } from "./leveling.js";
 import type { World } from "./world.js";
 
 const TOAST_DURATION = 2.4;
@@ -122,6 +123,11 @@ function drawXpBar(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, wor
   ctx.fillRect(x, y, w, h);
   ctx.fillStyle = "#6ec4ff";
   ctx.fillRect(x, y, w * Math.max(0, Math.min(1, ratio)), h);
+  // A tick at each stat-up milestone; bright until it has been reached.
+  statUpFractions().forEach((fraction, i) => {
+    ctx.fillStyle = i < progression.statUpsClaimed ? "rgba(216, 236, 255, 0.35)" : "#ffe08a";
+    ctx.fillRect(x + w * fraction - 1, y, 2, h);
+  });
   ctx.strokeStyle = "#d8ecff";
   ctx.strokeRect(x, y, w, h);
 

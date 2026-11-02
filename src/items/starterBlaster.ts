@@ -9,7 +9,8 @@ const HIT_FLASH: HitFlashStyle = { radius: 8, life: 0.12, color: "#ffe6a8" };
 export const starterBlaster = definePassiveItem({
   id: "starter_blaster",
   name: "Default Attack",
-  maxLevel: 1,
+  description: "Zaps the nearest enemy in range.",
+  maxLevel: 5,
   params: {
     interval: 0.35,
     damage: 7,
@@ -20,7 +21,10 @@ export const starterBlaster = definePassiveItem({
     damage: { stat: "attackDamageMultiplier", mode: "multiply" },
     range: { stat: "attackSizeMultiplier", mode: "multiply" },
   },
-  perLevel: {},
+  perLevel: {
+    damage: 3,
+    interval: -0.03,
+  },
 
   createState: () => ({ cooldown: 0 }),
 

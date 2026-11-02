@@ -22,6 +22,8 @@ export interface PlayerProgression {
   level: number;
   xp: number;
   xpToNext: number;
+  // Stat-up milestones already reached in the current level.
+  statUpsClaimed: number;
 }
 
 
@@ -62,7 +64,7 @@ export class Player {
   activeItem: EquippedActiveItem | null = null;
 
   constructor(initialXpToNext: number, itemIds: readonly ItemId[] = DEFAULT_EQUIPPED_ITEM_IDS) {
-    this.progression = { level: 1, xp: 0, xpToNext: initialXpToNext };
+    this.progression = { level: 1, xp: 0, xpToNext: initialXpToNext, statUpsClaimed: 0 };
     for (const itemId of itemIds) {
       this.equipItem(itemId);
     }

@@ -5,7 +5,8 @@ import { defineActiveItem, timeCooldown } from "../itemTypes.js";
 export const blowback = defineActiveItem({
   id: "blowback",
   name: "Blowback",
-  maxLevel: 1,
+  description: "Active: knocks back every enemy around you.",
+  maxLevel: 5,
   params: {
     radius: 200,
     // How far each enemy is pushed, in world units.
@@ -16,7 +17,10 @@ export const blowback = defineActiveItem({
   scaling: {
     radius: { stat: "attackSizeMultiplier", mode: "multiply" },
   },
-  perLevel: {},
+  perLevel: {
+    radius: 25,
+    cooldown: -1,
+  },
 
   // Starts fully charged.
   createState: () => ({ sinceUse: Infinity }),

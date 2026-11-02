@@ -12,6 +12,7 @@ const EXPLOSION_FLASH: HitFlashStyle = { radius: 10, life: 0.16, color: "#ffb35c
 export const fireball = definePassiveItem({
   id: "fireball",
   name: "Fireball",
+  description: "Explodes on impact and sets enemies on fire.",
   maxLevel: 5,
   params: {
     // Seconds between casts.

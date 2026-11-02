@@ -1,4 +1,4 @@
-import type { UpgradeDefinition } from "./upgrades.js";
+import type { UpgradeChoice } from "./upgrades.js";
 
 // Full-screen overlays for the non-running game states.
 
@@ -32,17 +32,38 @@ export function drawPausedBackdrop(ctx: CanvasRenderingContext2D, canvas: HTMLCa
   dim(ctx, canvas, "rgba(10, 8, 15, 0.7)");
 }
 
-// Returns where each card was drawn, for click hit-testing.
+// Splits text into lines no wider than maxWidth in the current font.
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(candidate).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) {
+    lines.push(line);
+  }
+  return lines;
+}
+
+// `remaining` counts this pick, so 1 means it is the last one. Returns where each card was
+// drawn, for click hit-testing.
 export function drawUpgradeChoice(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
-  options: readonly UpgradeDefinition[],
-  pendingLevelUps: number,
+  options: readonly UpgradeChoice[],
+  heading: string,
+  remaining: number,
 ): Rect[] {
   dim(ctx, canvas, "rgba(10, 8, 15, 0.7)");
 
   const cardW = 220;
-  const cardH = 110;
+  const cardH = 130;
   const gap = 20;
   const totalW = options.length * cardW + (options.length - 1) * gap;
   const startX = canvas.width / 2 - totalW / 2;
@@ -50,7 +71,7 @@ export function drawUpgradeChoice(
 
   ctx.fillStyle = "#efe6d3";
   ctx.font = "24px monospace";
-  const title = pendingLevelUps > 1 ? `Level Up! (${pendingLevelUps} to pick)` : "Level Up!";
+  const title = remaining > 1 ? `${heading} (${remaining} to pick)` : heading;
   ctx.fillText(title, canvas.width / 2 - ctx.measureText(title).width / 2, cardY - 30);
 
   const rects = options.map((_, i) => ({ x: startX + i * (cardW + gap), y: cardY, w: cardW, h: cardH }));
@@ -71,12 +92,13 @@ export function drawUpgradeChoice(
     ctx.font = "16px monospace";
     ctx.fillText(upgrade.name, r.x + 12, r.y + 50);
     ctx.font = "12px monospace";
-    ctx.fillText(upgrade.description, r.x + 12, r.y + 76);
+    const lines = wrapText(ctx, upgrade.description, r.w - 24);
+    lines.forEach((line, lineIndex) => ctx.fillText(line, r.x + 12, r.y + 76 + lineIndex * 16));
   }
 
   ctx.fillStyle = "#efe6d3";
   ctx.font = "12px monospace";
-  const hint = "Press 1-3 or click a card";
+  const hint = `Press 1-${options.length} or click a card`;
   ctx.fillText(hint, canvas.width / 2 - ctx.measureText(hint).width / 2, cardY + cardH + 32);
   return rects;
 }

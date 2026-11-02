@@ -1,7 +1,7 @@
 import { cloneVec2, swapRemove, type Vec2 } from "./types.js";
 import { SpatialHash } from "./spatialHash.js";
 import { BASE_PICKUP_RANGE, damagePlayer, healPlayer, Player } from "./player.js";
-import { DEFAULT_LEVEL_CURVE, grantExperience, xpToNextLevel } from "./leveling.js";
+import { DEFAULT_LEVEL_CURVE, grantExperience, xpToNextLevel, type UpgradeReward } from "./leveling.js";
 import { DEFAULT_SPAWN_STAGES, EnemySpawnEngine } from "./spawnEngine.js";
 import { applyBurn, applyKnockback, BURN_HIT_FLASH, moveEnemy, tickBurn, updateEnemyBehavior, type ActiveEnemy } from "./enemies.js";
 import { createProjectile, type Projectile, type ProjectileSpec } from "./projectiles.js";
@@ -63,13 +63,13 @@ export class World implements SimContext {
   private readonly separationGrid = new SpatialHash();
   private maxEnemyRadius = 0;
 
-  // Advances one frame. `move` is the normalized input direction. Returns levels gained;
-  // stops early on a level-up so the game can pause for the upgrade choice.
-  step(frameDt: number, move: Vec2): number {
+  // Advances one frame. `move` is the normalized input direction. Returns the upgrade rewards
+  // earned, in order; stops early when there are any so the game can pause for the choice.
+  step(frameDt: number, move: Vec2): UpgradeReward[] {
     // Substeps improve collision stability when frame time spikes.
     const steps = Math.max(1, Math.ceil(frameDt / 0.016));
     const stepDt = frameDt / steps;
-    let levelsGained = 0;
+    const rewards: UpgradeReward[] = [];
 
     for (let i = 0; i < steps; i += 1) {
       this.dt = stepDt;
@@ -96,14 +96,14 @@ export class World implements SimContext {
       this.resolveEnemyEnemyOverlaps();
       this.resolveEnemyEnemyOverlaps();
       this.removeDeadEnemies();
-      levelsGained += this.updateXpOrbs();
+      this.updateXpOrbs(rewards);
       this.vfx.update(stepDt);
 
-      if (levelsGained > 0) {
+      if (rewards.length > 0) {
         break;
       }
     }
-    return levelsGained;
+    return rewards;
   }
 
   // ---- SimContext ----
@@ -256,12 +256,12 @@ export class World implements SimContext {
     }
   }
 
-  private updateXpOrbs(): number {
+  // Pulls and collects XP orbs, adding any upgrade rewards earned to `rewards`.
+  private updateXpOrbs(rewards: UpgradeReward[]): void {
     const player = this.player;
     const pickupScale = player.stats.pickupRange / BASE_PICKUP_RANGE;
     const magnetRange = MAGNET_RANGE * pickupScale;
     const pickupRange = (player.radius + 10) * pickupScale;
-    let levelsGained = 0;
 
     for (let i = this.xpOrbs.length - 1; i >= 0; i -= 1) {
       const orb = this.xpOrbs[i];
@@ -277,11 +277,10 @@ export class World implements SimContext {
 
       if (dist < pickupRange + orb.radius) {
         const gainedXp = orb.value * player.stats.xpMultiplier;
-        levelsGained += grantExperience(player.progression, gainedXp, DEFAULT_LEVEL_CURVE);
+        rewards.push(...grantExperience(player.progression, gainedXp, DEFAULT_LEVEL_CURVE));
         swapRemove(this.xpOrbs, i);
       }
     }
-    return levelsGained;
   }
 
   private removeDeadEnemies(): void {
