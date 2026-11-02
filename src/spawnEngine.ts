@@ -60,9 +60,11 @@ export const DIFFICULTY_SCALING = {
 
 // Applied once the final stage has started, so it keeps getting harder instead of going flat.
 // Counts grow per tier up to hard limits, so the screen stays readable; past that, only
-// difficulty keeps rising.
+// difficulty keeps rising. Difficulty compounds by difficultyGrowthPerMinute, so it outpaces
+// a build that has hit its level caps and no run lasts forever: with the default exponents,
+// normal enemies match the base player's speed about 16 minutes in.
 export const ENDLESS_SCALING = {
-  difficultyPerMinute: 0.5,
+  difficultyGrowthPerMinute: 1.3,
   tierInterval: 30,
   maxNormalsPerTier: 6,
   maxSpecialsPerTier: 1,
@@ -329,13 +331,13 @@ export class EnemySpawnEngine {
   }
 
   // The current difficulty: the stage's value, ramped toward the next stage's in continuous
-  // mode, and growing by ENDLESS_SCALING.difficultyPerMinute once the final stage starts.
+  // mode, and compounding by ENDLESS_SCALING.difficultyGrowthPerMinute once the final stage starts.
   getDifficulty(): number {
     const stage = this.stages[this.currentStageIndex];
     const next = this.stages[this.currentStageIndex + 1];
     const timeInStage = Math.max(0, this.getStageTime() - stage.startTime);
     if (!next) {
-      return stage.difficulty + (timeInStage / 60) * ENDLESS_SCALING.difficultyPerMinute;
+      return stage.difficulty * Math.pow(ENDLESS_SCALING.difficultyGrowthPerMinute, timeInStage / 60);
     }
     if (DIFFICULTY_MODE === "stepped") {
       return stage.difficulty;
