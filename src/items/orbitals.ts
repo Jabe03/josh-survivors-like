@@ -41,7 +41,7 @@ function dissipate(context: ItemUpdateContext, pos: Vec2, size: number): void {
 export const orbitals = definePassiveItem({
   id: "orbitals",
   name: "Orbitals",
-  description: "Orbs circle you, each until its damage is spent.",
+  description: "Orbs circle you and strike enemies they touch. They fade as they wear out, then return after a short rest.",
   maxLevel: 5,
   params: {
     count: 2,
@@ -52,11 +52,11 @@ export const orbitals = definePassiveItem({
     // Radius of each orb.
     size: 11,
     damage: 8,
-    // Total damage one orb can deal before it dissipates.
-    damageBudget: 200,
+    // Total damage one orb can deal before it fades away.
+    durability: 200,
     // Seconds before the same orb can hit the same enemy again.
     hitInterval: 0.4,
-    // Seconds a wave of orbs lasts if their budgets are not spent first.
+    // Seconds a wave of orbs lasts if their durability is not used up first.
     duration: 6,
     // Seconds between the last orb dissipating and the next wave.
     cooldown: 3,
@@ -66,12 +66,12 @@ export const orbitals = definePassiveItem({
     size: { stat: "attackSizeMultiplier", mode: "multiply" },
     damage: { stat: "attackDamageMultiplier", mode: "multiply" },
     // Scaled with damage so damage upgrades don't just make orbs burn out faster.
-    damageBudget: { stat: "attackDamageMultiplier", mode: "multiply" },
+    durability: { stat: "attackDamageMultiplier", mode: "multiply" },
     cooldown: { stat: "attackRateMultiplier", mode: "divide", minStat: 0.15 },
   },
   perLevel: {
     count: 1,
-    damageBudget: 50,
+    durability: 50,
   },
 
   // Starts with an expired cooldown, so the first wave appears immediately.
@@ -85,7 +85,7 @@ export const orbitals = definePassiveItem({
       }
       const count = Math.max(1, Math.round(params.count));
       for (let i = 0; i < count; i += 1) {
-        state.orbs.push({ slot: i / count, damageLeft: params.damageBudget, damageBudget: params.damageBudget, hitCooldowns: new Map() });
+        state.orbs.push({ slot: i / count, damageLeft: params.durability, damageBudget: params.durability, hitCooldowns: new Map() });
       }
       state.phase = "active";
       state.timer = params.duration;
@@ -134,7 +134,8 @@ export const orbitals = definePassiveItem({
     const { ctx } = context;
     for (const orb of state.orbs) {
       const p = context.worldToScreen(orbPosition(context.player.pos, state.angle, orb.slot, params.orbitRadius));
-      ctx.globalAlpha = 0.35 + 0.65 * Math.max(0, orb.damageLeft / orb.damageBudget);
+      // Strongly visible fade (down to 15%), so players can read how worn out each orb is.
+      ctx.globalAlpha = 0.15 + 0.85 * Math.max(0, orb.damageLeft / orb.damageBudget);
       ctx.fillStyle = COLOR;
       ctx.beginPath();
       ctx.arc(p.x, p.y, params.size, 0, Math.PI * 2);

@@ -1,9 +1,9 @@
-import { cloneVec2, swapRemove, type Vec2 } from "./types.js";
+import { clampToPlayArea, cloneVec2, PLAY_AREA_HALF_SIZE, swapRemove, type Vec2 } from "./types.js";
 import { SpatialHash } from "./spatialHash.js";
 import { damagePlayer, healPlayer, Player } from "./player.js";
 import { DEFAULT_LEVEL_CURVE, grantExperience, xpToNextLevel, type UpgradeReward } from "./leveling.js";
 import { DEFAULT_SPAWN_STAGES, EnemySpawnEngine } from "./spawnEngine.js";
-import { applyBurn, applyKnockback, BURN_HIT_FLASH, moveEnemy, tickBurn, updateEnemyBehavior, type ActiveEnemy } from "./enemies.js";
+import { applyBurn, applyKnockback, BURN_HIT_FLASH, createEnemy, moveEnemy, tickBurn, updateEnemyBehavior, type ActiveEnemy } from "./enemies.js";
 import { createProjectile, type Projectile, type ProjectileSpec } from "./projectiles.js";
 import { VfxSystem, type HitFlashStyle, type VfxSpec } from "./vfx.js";
 
@@ -38,7 +38,21 @@ export interface XpOrb {
   pos: Vec2;
   value: number;
   radius: number;
+  // Scattered across the play area at the start, rather than dropped by an enemy.
+  latent: boolean;
 }
+
+// Small XP orbs scattered sparsely over the whole play area, so exploring is worth a little.
+// Collected ones are replaced over time, out of the player's sight.
+export const LATENT_XP = {
+  // How many are kept on the map. The play area is about 50 screens, so ~6 per screen.
+  count: 300,
+  value: 2,
+  // Seconds between replacements while below `count`.
+  refillInterval: 0.5,
+  // Replacements appear at least this far from the player (just off-screen at 1080p).
+  minRefillDistance: 1150,
+};
 
 const CRIT_FLASH_COLOR = "#ffffff";
 const CRIT_FLASH_SCALE = 1.6;
@@ -73,6 +87,14 @@ export class World implements SimContext {
   dt = 0;
   // Set by requestActiveItemUse, handled during the next step.
   private activeItemRequested = false;
+  private latentOrbCount = 0;
+  private latentRefillTimer = 0;
+
+  constructor() {
+    for (let i = 0; i < LATENT_XP.count; i += 1) {
+      this.spawnLatentOrb(0);
+    }
+  }
 
   // Rebuilt each substep after enemies move, for item and projectile queries.
   private readonly queryGrid = new SpatialHash();
@@ -91,14 +113,20 @@ export class World implements SimContext {
       this.dt = stepDt;
       const stepMoveX = move.x * this.player.stats.moveSpeed * stepDt;
       const stepMoveY = move.y * this.player.stats.moveSpeed * stepDt;
+      const prevX = this.player.pos.x;
+      const prevY = this.player.pos.y;
       this.player.pos.x += stepMoveX;
       this.player.pos.y += stepMoveY;
+      clampToPlayArea(this.player.pos, this.player.radius);
+      this.player.velocity.x = (this.player.pos.x - prevX) / stepDt;
+      this.player.velocity.y = (this.player.pos.y - prevY) / stepDt;
       healPlayer(this.player, this.player.stats.healthRegenRate * stepDt);
 
       this.spawnEngine.update(stepDt, this.player.pos, this.enemies);
       this.updateEnemies(stepMoveX, stepMoveY);
 
       this.rebuildQueryGrid();
+      this.applyShieldAuras();
       for (const item of this.player.allItems) {
         this.damageSource = item.item.id;
         item.update(this);
@@ -114,7 +142,11 @@ export class World implements SimContext {
       // Run a couple of separation passes for tighter clusters.
       this.resolveEnemyEnemyOverlaps();
       this.resolveEnemyEnemyOverlaps();
+      for (const enemy of this.enemies) {
+        clampToPlayArea(enemy.pos, enemy.template.radius);
+      }
       this.removeDeadEnemies();
+      this.refillLatentOrbs();
       this.updateXpOrbs(rewards);
       this.vfx.update(stepDt);
 
@@ -129,7 +161,7 @@ export class World implements SimContext {
 
   damageEnemy(enemy: ActiveEnemy, amount: number, hitFlash?: HitFlashStyle): number {
     const isCrit = Math.random() < this.player.stats.critChance;
-    const hit = isCrit ? amount * this.player.stats.critDamageMultiplier : amount;
+    const hit = (isCrit ? amount * this.player.stats.critDamageMultiplier : amount) * (1 - enemy.shield);
     const healthBefore = enemy.health;
     enemy.health = Math.max(0, enemy.health - hit);
     const dealt = healthBefore - enemy.health;
@@ -253,7 +285,7 @@ export class World implements SimContext {
       const overlap = this.resolvePlayerEnemyOverlap(enemy, stepMoveX, stepMoveY);
       if (overlap && enemy.hitCooldown === 0) {
         // The cooldown resets even on a dodge, so the enemy can't re-roll every substep.
-        this.hurtPlayer(enemy.template.damage);
+        this.hurtPlayer(enemy.damage);
         enemy.hitCooldown = enemy.template.hitInterval;
       }
     }
@@ -323,20 +355,84 @@ export class World implements SimContext {
       if (dist < collectRange + orb.radius) {
         const gainedXp = orb.value * player.stats.xpMultiplier;
         rewards.push(...grantExperience(player.progression, gainedXp, DEFAULT_LEVEL_CURVE));
+        if (orb.latent) {
+          this.latentOrbCount -= 1;
+        }
         swapRemove(this.xpOrbs, i);
       }
     }
   }
 
-  private removeDeadEnemies(): void {
-    for (let i = this.enemies.length - 1; i >= 0; i -= 1) {
-      const enemy = this.enemies[i];
-      if (enemy.health <= 0) {
-        this.xpOrbs.push({ pos: cloneVec2(enemy.pos), value: enemy.template.xpReward, radius: 5 });
-        swapRemove(this.enemies, i);
-        this.runStats.kills += 1;
+  // Places a latent orb at a random spot in the play area at least `minDistance` from the player.
+  private spawnLatentOrb(minDistance: number): void {
+    const margin = 20;
+    const span = PLAY_AREA_HALF_SIZE - margin;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const pos = { x: (Math.random() * 2 - 1) * span, y: (Math.random() * 2 - 1) * span };
+      if (Math.hypot(pos.x - this.player.pos.x, pos.y - this.player.pos.y) >= minDistance) {
+        this.xpOrbs.push({ pos, value: LATENT_XP.value, radius: 4, latent: true });
+        this.latentOrbCount += 1;
+        return;
       }
     }
+  }
+
+  private refillLatentOrbs(): void {
+    if (this.latentOrbCount >= LATENT_XP.count) {
+      return;
+    }
+    this.latentRefillTimer -= this.dt;
+    if (this.latentRefillTimer <= 0) {
+      this.latentRefillTimer = LATENT_XP.refillInterval;
+      this.spawnLatentOrb(LATENT_XP.minRefillDistance);
+    }
+  }
+
+  // Recomputes every enemy's shield from the living shielders around it. Uses the query grid,
+  // so it runs after rebuildQueryGrid.
+  private applyShieldAuras(): void {
+    for (const enemy of this.enemies) {
+      enemy.shield = 0;
+    }
+    for (const shielder of this.enemies) {
+      const aura = shielder.template.shieldAura;
+      if (!aura || shielder.health <= 0) {
+        continue;
+      }
+      this.forEachEnemyInRadius(shielder.pos, aura.radius, (enemy) => {
+        if (enemy !== shielder) {
+          enemy.shield = Math.max(enemy.shield, aura.damageReduction);
+        }
+      });
+    }
+  }
+
+  private removeDeadEnemies(): void {
+    const spawned: ActiveEnemy[] = [];
+    for (let i = this.enemies.length - 1; i >= 0; i -= 1) {
+      const enemy = this.enemies[i];
+      if (enemy.health > 0) {
+        continue;
+      }
+      if (!enemy.noReward) {
+        this.xpOrbs.push({ pos: cloneVec2(enemy.pos), value: enemy.xpReward, radius: 5, latent: false });
+        this.runStats.kills += 1;
+      }
+      const onDeath = enemy.template.onDeath;
+      if (onDeath) {
+        // Spread evenly around the corpse so they don't spawn stacked.
+        for (let k = 0; k < onDeath.count; k += 1) {
+          const angle = (k / onDeath.count) * Math.PI * 2 + Math.random();
+          const offset = enemy.template.radius;
+          const pos = { x: enemy.pos.x + Math.cos(angle) * offset, y: enemy.pos.y + Math.sin(angle) * offset };
+          const child = createEnemy(onDeath.spawn, pos, enemy.scaling);
+          applyKnockback(child, enemy.pos, onDeath.burstDistance);
+          spawned.push(child);
+        }
+      }
+      swapRemove(this.enemies, i);
+    }
+    this.enemies.push(...spawned);
   }
 
   private resolvePlayerEnemyOverlap(enemy: ActiveEnemy, moveX: number, moveY: number): boolean {

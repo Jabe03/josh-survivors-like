@@ -146,7 +146,7 @@ function drawStagePanel(ctx: CanvasRenderingContext2D, world: World): void {
   const endlessTier = spawnEngine.getEndlessTier();
   const x = 16;
   const y = 16;
-  drawPanel(ctx, x, y, 220, 84);
+  drawPanel(ctx, x, y, 220, 100);
 
   ctx.fillStyle = "#efe6d3";
   ctx.font = "12px monospace";
@@ -154,6 +154,7 @@ function drawStagePanel(ctx: CanvasRenderingContext2D, world: World): void {
   ctx.fillText(`${stageInfo.label}${endlessTier > 0 ? ` +${endlessTier}` : ""}`, x + 10, y + 34);
   ctx.fillText(`Enemies: ${world.enemies.length}/${stageInfo.targetEnemyCount}`, x + 10, y + 50);
   ctx.fillText(`Time: ${formatTime(spawnEngine.getElapsedTime())}`, x + 10, y + 66);
+  ctx.fillText(`Difficulty: x${stageInfo.difficulty.toFixed(2)}`, x + 10, y + 82);
 }
 
 // Shortens text with "…" until it fits maxWidth in the current font.

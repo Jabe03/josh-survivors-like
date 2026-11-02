@@ -54,6 +54,8 @@ export const BASE_PLAYER_STATS: Readonly<PlayerStats> = {
 
 export class Player {
   pos: Vec2 = { x: 0, y: 0 };
+  // How fast the player actually moved last substep (after walls), for enemies that lead their aim.
+  velocity: Vec2 = { x: 0, y: 0 };
   radius = BASE_PLAYER_RADIUS;
   health = BASE_PLAYER_MAX_HEALTH;
   stats: PlayerStats = { ...BASE_PLAYER_STATS };

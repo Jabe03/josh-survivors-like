@@ -5,6 +5,9 @@ export interface LevelCurveDefinition {
   linear: number;
   quadratic: number;
   exponent: number;
+  // Exponential growth: each level costs this much more than the polynomial alone, compounding
+  // (level L is multiplied by growth^(L-1)). Keeps the bar ahead of enemy counts as waves ramp.
+  growth: number;
   minXpToNext: number;
 }
 
@@ -13,12 +16,14 @@ export const DEFAULT_LEVEL_CURVE: LevelCurveDefinition = {
   linear: 9,
   quadratic: 1.6,
   exponent: 1,
+  growth: 1.08,
   minXpToNext: 8,
 };
 
 export function xpToNextLevel(level: number, curve: LevelCurveDefinition): number {
   const raw = curve.base + curve.linear * level + curve.quadratic * level * level;
-  const scaled = raw * Math.pow(Math.max(1, level), Math.max(0, curve.exponent - 1));
+  const polynomial = raw * Math.pow(Math.max(1, level), Math.max(0, curve.exponent - 1));
+  const scaled = polynomial * Math.pow(curve.growth, Math.max(0, level - 1));
   return Math.max(curve.minXpToNext, Math.floor(scaled));
 }
 
