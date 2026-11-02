@@ -217,12 +217,15 @@ function describeLevelUp(item: AnyItemDefinition): string {
 }
 
 // Item upgrades offered on level-up: a level for an item the player owns (below its max),
-// or an item they don't own yet (passive ones only while under MAX_PASSIVE_ITEMS). Falls
-// back to stat upgrades when nothing is left to offer.
+// or an item they don't own yet (passive ones only while under MAX_PASSIVE_ITEMS, active ones
+// only while no active is held). Falls back to stat upgrades when nothing is left to offer.
 export function chooseItemOptions(player: Player, count: number = UPGRADE_CHOICE_COUNT): UpgradeChoice[] {
   const pool: UpgradeChoice[] = [];
   const ownedIds = new Set<string>();
   const passiveSlotsFull = player.passiveItems.length >= MAX_PASSIVE_ITEMS;
+  // The active slot fills like the passive ones. Offering swaps would mean that a maxed build
+  // never runs out of item cards, and each swap drops a leveled active for a level 1 one.
+  const activeSlotFull = player.activeItem !== null;
 
   for (const equipped of player.allItems) {
     ownedIds.add(equipped.item.id);
@@ -240,13 +243,12 @@ export function chooseItemOptions(player: Player, count: number = UPGRADE_CHOICE
 
   for (const itemId of Object.keys(ITEM_DEFINITIONS) as ItemId[]) {
     const item = ITEM_DEFINITIONS[itemId];
-    if (ownedIds.has(itemId) || (item.kind === "passive" && passiveSlotsFull)) {
+    if (ownedIds.has(itemId) || (item.kind === "passive" ? passiveSlotsFull : activeSlotFull)) {
       continue;
     }
-    // Only one active item can be equipped, so a new one replaces the current one.
     let note: string | undefined;
     if (item.kind === "active") {
-      note = player.activeItem ? `Replaces ${player.activeItem.item.name}. Use with SPACE.` : "Active item: use with SPACE.";
+      note = "Active item: use with SPACE. You can only hold one.";
     } else if (player.passiveItems.length === MAX_PASSIVE_ITEMS - 1) {
       note = "Fills your last item slot.";
     }
