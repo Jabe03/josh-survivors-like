@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
+# Deploys to my own server through the same install path the grader will use.
 set -euo pipefail
 cd "$(dirname "$0")"
-npm ci && npm run build
-rsync -a --delete index.html style.css out /var/www/html/final/
+./package.sh
+./dist/install.sh /var/www/html/final
