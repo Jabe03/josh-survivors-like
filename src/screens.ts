@@ -49,7 +49,7 @@ export function drawStartScreen(ctx: CanvasRenderingContext2D, canvas: HTMLCanva
 
   ctx.fillStyle = "#efe6d3";
   ctx.font = "40px monospace";
-  drawCentered(ctx, "Josh's Game", cx, y);
+  drawCentered(ctx, "Circle Survivors", cx, y);
   y += 22;
   ctx.fillStyle = "#8f8299";
   ctx.font = "14px monospace";

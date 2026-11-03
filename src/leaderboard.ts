@@ -17,7 +17,7 @@ export type LeaderboardView =
 
 // Relative, so it works wherever the game is hosted (e.g. /final/api/leaderboard).
 const API_URL = "api/leaderboard";
-const NAME_STORAGE_KEY = "joshs-game-name";
+const NAME_STORAGE_KEY = "circle-survivors-name";
 
 // The top entries, and the submitted run's place (null if it didn't make the board or none was sent).
 export type LeaderboardResult = { entries: LeaderboardEntry[]; rank: number | null };
